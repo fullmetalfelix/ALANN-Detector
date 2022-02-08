@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 src = numpy.load("testimage.npy")
 src *= 10.0**9 # convert topography to nm
 
+# i do not remember the actual size
+src = SPM(src, 1.0e-5, 1.0e-5, 0, 0, 0, channel_name_and_unit=['',''])
+
 
 # create a scanner with default parameters
 scanner = Detector()
