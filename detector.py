@@ -1,6 +1,7 @@
 import numpy
 import scipy
 import scipy.signal
+from scipy import ndimage
 
 import matplotlib.pyplot as plt
 import math
@@ -627,6 +628,309 @@ class Detector(object):
 
 		data["recmask"] = recmask
 		data["output"] = rebuilt
+
+	# #########################################################################
+	# ### MEDIUM SCALE IMAGES #################################################
+
+
+	def Mesoscale_line_peakfind(line, stepthr=0.07, stepminheight=0.1):
+
+
+		state = 0
+		slst = 0
+		delta = 0
+		steps = []
+		peakheads = []
+
+		for i in range(1, len(line)): # loop over pixels
+
+			if state == 0:
+
+				slst = i-1
+				if line[i] > line[i-1]:
+					state = 1
+				else:
+					state = -1
+
+				continue
+
+			if state == 1 and line[i]<line[i-1]: # trend was going up and it stopped
+
+				# did it go up enough to make a step?
+				delta = line[i-1]-line[slst]
+
+				if numpy.abs(delta) > stepthr:
+					steps.append([slst, i-1, delta, int(numpy.round(delta/stepminheight))])
+
+				peakheads.append([i-1,1])
+				state = 0
+			
+			if state==-1 and line[i]>line[i-1]: # trend was going down and it stopped
+
+				# did it go down enough to make a step
+				delta = line[i-1] - line[slst]
+				
+				if numpy.abs(delta) > stepthr:
+
+					steps.append([slst, i-1, delta, int(numpy.round(delta/stepminheight))])
+
+				peakheads.append([i-1,-1])
+				state = 0
+		# end of loop over pixels
+
+		if peakheads[0][0] != 1:
+			peakheads.insert(0, [0, -peakheads[0][1]])
+
+		if peakheads[-1][0] != len(line):
+			peakheads.append([len(line)-1, -peakheads[-1][1]])
+
+		#steps = numpy.asarray(steps)
+		peakheads = numpy.asarray(peakheads)
+		
+		#print(steps)
+		#print(peakheads)
+
+		peaks = []
+		for i in range(1,peakheads.shape[0]-1):
+			
+			if numpy.abs(line[peakheads[i, 0]] - line[peakheads[i + 1, 0]]) > 0.04: peaks.append((peakheads[i-1,0],peakheads[i,0],peakheads[i+1,0]))
+			if numpy.abs(line[peakheads[i, 0]] - line[peakheads[i - 1, 0]]) > 0.04: peaks.append((peakheads[i-1,0],peakheads[i,0],peakheads[i+1,0]))
+			
+		peaks = list(dict.fromkeys(peaks)) # delete duplicates
+		#print(peaks)
+
+		return peaks, steps
+
+
+	def Mesoscale_line_terracedivide(line, peaks, steps):
+
+		start = 0
+
+		tmp = [[i,line[i]] for i in range(len(line))]
+		tmp = numpy.asarray(tmp)
+		mask = numpy.zeros(len(line)) + 1
+
+		# also take out the spikes first
+		for b in peaks: mask[b[0] : b[2]] = -1
+
+		terraces = []
+
+		# split terraces
+		for s in steps:
+
+			tmp2 = tmp[start : s[0]]
+			tmp3 = tmp2[mask[start : s[0]] > 0]
+
+			start = s[1]
+			
+			terraces.append(numpy.asarray(tmp3))
+		
+		if  start < len(line):
+			tmp2 = tmp[start:]
+			tmp3 = tmp2[mask[start:] > 0]
+			terraces.append(numpy.asarray(tmp3))
+		
+		tmp = [x for x in terraces if len(x) > 0]
+		terraces = tmp
+		#terraces = numpy.asarray(terraces)
+		
+
+		return terraces
+		
+	
+	def Mesoscale_line_goodsteps(line, terraces, steps, stepthr=0.09, stepPhysSize=0.12):
+
+		tstarts = [t[0,0] for t in terraces]
+		tends = [t[-1,0] for t in terraces]
+		goodsteps = numpy.zeros(len(steps))
+
+		for i in range(len(steps)):
+
+			# find the terrace before this step
+			t1 = [t for t in terraces if t[-1,0] <= steps[i][0]]
+			if len(t1) == 0:
+				continue
+			else:
+				t1 = t1[-1]
+
+			# find the terrace after this step
+			t2 = [t for t in terraces if t[0,0] >= steps[i][1]]
+			if len(t2) == 0: continue
+			else: t2 = t2[0]
+
+			# check delta of means
+			delta = numpy.mean(t2[:,1]) - numpy.mean(t1[:,1])
+			
+			# if delta is below threshold, then there must have been a false step edge
+			if numpy.abs(delta) > stepthr:
+				goodsteps[i] = numpy.round(delta/stepPhysSize)
+		
+		#print(goodsteps)
+
+		tmp = []
+		for i in range(len(steps)):
+			if goodsteps[i] == 0: continue
+			s = steps[i]
+			#print(s)
+			s[-1] = goodsteps[i]
+			tmp.append(s)
+
+		return tmp
+
+
+	def Mesoscale_line_terraceRedivide(line, goodsteps, terraces):
+
+		mterraces = []
+
+		# merge terraces before a step
+		tidx = 0
+		sidx = 0
+		cend = 0
+		cterrace = None
+
+		while True:
+
+			if tidx == len(terraces):
+				mterraces.append(cterrace)
+				break
+
+			t = terraces[tidx]
+
+			# if we past the last step already
+			if sidx >= len(goodsteps):
+				cterrace = numpy.concatenate((cterrace, t))
+				tidx += 1
+				continue
+
+			# check if terrace tidx ends before the current step
+			if t[-1,0] <= goodsteps[sidx][0]:
+				
+				if cterrace is None: cterrace = t
+				else: cterrace = numpy.concatenate((cterrace, t))
+
+				tidx += 1 # move to next terrace
+				continue
+
+			# if the current terrace starts past the current step
+			# save the merged terrace and move to the next step
+			if t[0,0] >= goodsteps[sidx][1]:
+
+				mterraces.append(cterrace)
+				cterrace = t
+				sidx += 1
+				tidx += 1
+
+
+		# compute linear fits and subtract
+		for i in range(len(mterraces)):
+
+			t = mterraces[i]
+			x = t[:,0]
+			y = t[:,1]
+
+			if t.shape[0] < 5: continue
+			
+			#print("polyfit",t.shape)
+			fit = numpy.polyfit(x,y,1)
+			
+			mterraces[i][:,1] -= fit[1] + fit[0] * x
+
+
+		# assign terrace height/ID values
+		lineID = numpy.zeros(len(line), dtype=numpy.int32)
+		stepmask = numpy.zeros(len(line), dtype=numpy.int32)
+		for g in goodsteps: 
+			lineID[g[1]] = g[-1]
+			stepmask[g[0]:g[1]] = 1
+
+		lineID = numpy.cumsum(lineID)
+
+		return mterraces, lineID, stepmask
+
+
+	def Mesoscale_image_process(stmscan, st1=0.07, sm1=0.1, st2=0.09, sps=0.12):
+
+		img = stmscan.data
+		stepmask = numpy.zeros(img.shape, dtype=numpy.int32)
+		terraceIDs = numpy.zeros(img.shape, dtype=numpy.int32)
+
+
+		for li in range(img.shape[0]):
+			line = stmscan.data[li]
+			peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=st1, stepminheight=sm1)
+			linemask = Detector.Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=8)
+			stepmask[li] = linemask
+
+			''' FIRST TEST
+				peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=st1, stepminheight=sm1)
+				terraces = Detector.Mesoscale_line_terracedivide(line, peaks, steps)
+				goodsteps = Detector.Mesoscale_line_goodsteps(line, terraces, steps, stepthr=st2, stepPhysSize=sps)
+				mterraces, lineID, linemask = Detector.Mesoscale_line_terraceRedivide(line, goodsteps, terraces)
+
+				terraceIDs[li] = lineID
+				stepmask[li] = linemask
+			'''
+
+
+		# redo the pass in vertical direction
+		for li in range(img.shape[1]):
+			line = stmscan.data[:,li]
+			peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=0.08, stepminheight=0.1)
+			linemask = Detector.Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=8)
+			stepmask[:,li] += linemask
+
+
+		stepmask[stepmask>0] = 1
+
+
+		
+		#labels, nb = ndimage.label(stepmask)
+		numpy.save("meso.stepmask.npy", stepmask)
+
+		fig, (ax1, ax2) = plt.subplots(1, 2)
+		ax1.matshow(stepmask)
+		ax2.matshow(terraceIDs)
+		plt.show()
+
+
+
+
+		return terraceIDs
+
+
+	def Mesoscale_image_coloring(tmap):
+
+		# start with ...
+
+		pass
+
+
+
+	def Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=4):
+
+		mask = numpy.zeros(len(line), dtype=numpy.int32)
+
+		for s in steps:
+			
+			x1 = max(0,s[0]-buffersize)
+			x2 = s[1]
+			x3 = min(x2+buffersize, len(line))
+
+			b1 = line[x1:s[0]]
+			b2 = line[s[1]:x3]
+
+			if len(b1) == 0 or len(b2) == 0: continue
+
+			m1 = numpy.mean(b1)
+			m2 = numpy.mean(b2)
+			delta = m2-m1
+
+			if numpy.abs(delta) > thr:
+				mask[s[0]:s[1]] = 1
+
+
+		return mask
+
 
 	# #########################################################################
 	# #########################################################################
