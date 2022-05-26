@@ -250,6 +250,11 @@ class ALANNGUI(object):
 
 	def resize(self, event):
 
+		self.canvas_redraw()
+		
+	
+	def _canvas_compute_corners(self):
+
 		self.canvas_size[0] = self.canvas.winfo_width()
 		self.canvas_size[1] = self.canvas.winfo_height()
 
@@ -264,9 +269,6 @@ class ALANNGUI(object):
 		self.canvas_corners[3] = self.canvas_to_physical(p)
 
 
-		self.canvas_redraw()
-		
-	
 	def canvas_onclick(self,event):
 		
 		p = self.canvas_to_physical(numpy.asarray([event.x, event.y]))
@@ -297,11 +299,8 @@ class ALANNGUI(object):
 
 		self.canvas.delete("all")
 
-		cw = self.canvas.winfo_width()
-		ch = self.canvas.winfo_height()
-		#print("canvas width",cw,ch)
+		self._canvas_compute_corners()
 
-	
 		self._pixelBuffer = numpy.zeros(self.canvas_size, dtype=numpy.float64)
 		self._pixelStats = numpy.zeros(self.canvas_size, dtype=numpy.int32)
 
@@ -320,8 +319,13 @@ class ALANNGUI(object):
 		self._imgmin = imgmin
 		self._imgmax = imgmax
 
-
-		for spm in self._scans:
+		#print("rendering images...")
+		# sort images by resolution
+		# low res images are drawn first
+		scans = sorted(self._scans, key=lambda x: x.pixelSize[0], reverse=True)
+		self._crops = []
+		for spm in scans:
+			#print("rendering spm...")
 			self.canvas_redraw_spm(spm)
 
 		'''
@@ -374,20 +378,78 @@ class ALANNGUI(object):
 
 
 		# determine which part of the picture to draw
+		# these are the canvas corners in physical space
 		y0 = self.canvas_corners[3,1]
 		ym = self.canvas_corners[0,1]
 		x0 = self.canvas_corners[0,0]
 		xm = self.canvas_corners[1,0]
 
+		#print("canvas corners:",[x0,y0],[xm,ym])
+
+		# if both corners of an edge are on the same side of the canvas, the image is out
+		spm_x0 = spm.x_offset
+		spm_xm = spm.x_offset + spm.width
+
+		frame_x0 = numpy.max([x0,spm_x0])
+		frame_xm = numpy.min([xm,spm_xm])
+
+		#print("frame x",frame_x0,frame_xm,x0,xm)
+
+		if frame_xm < x0 or frame_x0 > xm:
+			#print("spm is out of canvas (x)")
+			return None
+
+		spm_y0 = spm.y_offset
+		spm_ym = spm.y_offset + spm.height
+
+		frame_y0 = numpy.max([y0,spm_y0])
+		frame_ym = numpy.min([ym,spm_ym])
+
+		if frame_ym < y0 or frame_y0 > ym:
+			#print("spm is out of canvas (y)")
+			return None
+
+		# code here => there is some overlap between spm and canvas
+		#print("frame boundaries on spm (x):",[spm_x0,frame_x0],[spm_xm,frame_xm])
+		#print("frame boundaries on spm (y):",[spm_y0,frame_y0],[spm_ym,frame_ym])
+
+		# crop the original spm data 
+		data = spm.data - self._imgmin # also applies the shift
+		data /= self._imgmax*0.5
+		data *= 255
+
+
+		# where is frame_x0 in spm pixel coordinates?
+		frame_px_x0 = int(numpy.floor((frame_x0 - spm_x0) / spm.pixelSize[0]))
+		frame_px_xm = int((frame_xm-spm_x0) / spm.pixelSize[0])
+		if frame_px_xm == 0: frame_px_xm = 1
+
+		#print("frame pixel coords (x)",frame_px_x0,frame_px_xm)
+		data = data[:,frame_px_x0:frame_px_xm+1]
+
+		frame_px_y0 = int(numpy.floor((frame_y0 - spm_y0) / spm.pixelSize[1]))
+		frame_px_ym = int((frame_ym-spm_y0) / spm.pixelSize[1])
+		if frame_px_ym == 0: frame_px_ym = 1
+
+		#print("frame pixel coords (y)",frame_px_y0,frame_px_ym)
+		data = data[frame_px_y0:frame_px_ym+1]
+
+		crop_px = numpy.asarray([data.shape[1],data.shape[0]])
+		crop_nm = crop_px * spm.pixelSize
+		#print("cropped size {}px - {}nm".format(crop_px, crop_nm))
+
 		#print("data stats",numpy.mean(spm.data),numpy.min(spm.data),numpy.max(spm.data))
 
+		'''
 		#imgmin = numpy.min(spm.data)
 		data = spm.data - self._imgmin
 		data /= self._imgmax*0.5
 		data *= 255
-
+		'''
+		# final conversion to bytes and flip vertically
 		data = data.astype(numpy.uint8)
 		data = numpy.flip(data, axis=0)
+
 
 		# we have to make the spm pixels the same size as the canvas pixels
 		# canvas pixel size is 1 / self.canvas_res
@@ -396,50 +458,27 @@ class ALANNGUI(object):
 		trgPXsize = numpy.asarray([1,1]) / self.canvas_res
 		curPXsize = spm.pixelSize
 		scaling = curPXsize / trgPXsize
-		newsize = numpy.asarray(data.shape) * scaling
+		newsize = numpy.round(numpy.asarray([data.shape[1],data.shape[0]]) * scaling)
 		newsize = newsize.astype(numpy.uint32)
 		method = Image.Resampling.BICUBIC
 		if scaling[0] < 1 and scaling[1] < 1:
 			method = Image.Resampling.LANCZOS
 		#print(trgPXsize,curPXsize,scaling,"--",data.shape, newsize)
 
-
+		
 		pic = Image.fromarray(data)
 		pic = pic.resize(newsize, resample=method)
 		tkpic = ImageTk.PhotoImage(image=pic)
-		pic.save("canvas.png", format="PNG")
+		#pic.save("canvas.png", format="PNG")
+		self._crops.append(tkpic)
 
-		p = numpy.asarray([spm.x_offset, spm.y_offset], dtype=numpy.float64)
+
+
+		p = numpy.asarray([frame_x0, frame_y0], dtype=numpy.float64)
 		c = self.physical_to_canvas(p)
-
+		#print("canvas placement:",p,c)
 		self.canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
-
-		'''
-		for i in range(spm.data.shape[0]): # loop over image rows (scanlines)
-
-			yr = spm.y_offset + i*spm.pixelSize[1]
-			if yr < y0: continue
-			if yr > ym: break
-
-			for j in range(spm.data.shape[1]): # loop over scanline points
-
-
-				xp = spm.x_offset + j*spm.pixelSize[0]
-				if xp < x0: continue
-				if xp > xm: break
-
-
-				# compute canvas coords of this pixel
-				p = numpy.asarray([xp, yr], dtype=numpy.float64)
-				c = self.physical_to_canvas(p)
-				cidx = numpy.floor(c).astype(numpy.int32)
-
-				self._pixelStats[cidx[0],cidx[1]] += 1
-				self._pixelBuffer[cidx[0],cidx[1]] += data[i,j]
-		'''
-
-		#print(data)
-
+		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
 
 		return
 
@@ -490,7 +529,6 @@ if __name__ == "__main__":
 	pic = Image.fromarray(a)
 	pic.save("test.png")
 	'''
-
 
 
 	# create a sample

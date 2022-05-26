@@ -1,7 +1,5 @@
 ### this is a fake scanner that generates a sample topography using perlin noise
 
-
-
 import numpy
 import pickle
 import matplotlib.pyplot as plt
