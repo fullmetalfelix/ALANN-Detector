@@ -149,6 +149,40 @@ class SPM(object):
 		self.pixelSize = numpy.asarray([height,width]) / self.data.shape
 		self.pixelSize = numpy.flip(self.pixelSize)
 
+		# if the image has an angle, compute the corrected frame coordinates
+
+		# corrected phsical coords of the corners
+		corners = numpy.zeros((4,2),dtype=numpy.float64)
+
+		theta = self.angle * numpy.pi / 180
+		rmat = numpy.asarray([[numpy.cos(theta),-numpy.sin(theta)],[numpy.sin(theta),numpy.cos(theta)]])
+		cmat = [[self.width,self.width,0],[0,self.height,self.height]]
+		cmat = numpy.asarray(cmat)
+		cmat = numpy.matmul(rmat, cmat) # cmat has the corner coords on the columns
+		cmat = numpy.transpose(cmat) # and now they are on the rows
+
+		corners[1:] = cmat
+		corners[:,0] += self.x_offset
+		corners[:,1] += self.y_offset
+
+		# corner positions (physical space)
+		self.image_corners = corners
+
+		# now the image frame with the axes alined to xy
+		xmin = numpy.min(corners[:,0])
+		xmax = numpy.max(corners[:,0])
+		ymin = numpy.min(corners[:,1])
+		ymax = numpy.max(corners[:,1])
+
+		frame = [[xmin,ymin],[xmax,ymin],[xmax,ymax],[xmin,ymax]]
+		frame = numpy.asarray(frame)
+
+		# corners of the frame that contains the rotated image (physical space)
+		self.frame_corners = frame
+
+
+
+
 
 class Scanner(object):
 

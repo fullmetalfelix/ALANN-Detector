@@ -60,45 +60,12 @@ class ALANNGUI(object):
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Controls").grid(row=0, column=0)
 
+		frm_scan = self._init_scan_panel(frame_ctrl)
+		frm_scan.grid(row=1, column=0, pady=4)
 
-		customtkinter.CTkLabel(master=frame_ctrl,text="Imaging Parameters").grid(row=1, column=0)
+		
+		nrow = 1
 
-		### image px size panel
-		frm_pxsize = customtkinter.CTkFrame(master=frame_ctrl, name="pxsize")
-		frm_pxsize.grid(row=2, column=0, padx=0, pady=2)
-
-		customtkinter.CTkLabel(master=frm_pxsize,text="pixels:").grid(row=0, column=0)
-		sld_px = customtkinter.CTkSlider(master=frm_pxsize, from_=6, to=11, number_of_steps=5,
-			command=self.pxsize_change)
-		sld_px.grid(row=0, column=1)
-		tvar_pxsize = tkinter.StringVar(value="...")
-		self.tvar_pxsize = tvar_pxsize
-		lbl_pxsize = customtkinter.CTkLabel(master=frm_pxsize,textvariable=tvar_pxsize).grid(row=0, column=2)
-		sld_px.set(8)
-		self.sld_px = sld_px
-		#########################
-
-		### image physical size panel
-		frm_size = customtkinter.CTkFrame(master=frame_ctrl, name="phsize")
-		frm_size.grid(row=3, column=0, padx=0, pady=2)
-
-		customtkinter.CTkLabel(master=frm_size,text="size:").grid(row=0, column=0)
-
-		# from 100nm to 12um
-		vals = [e for e in PhysicalSizes]
-		sld_ph = customtkinter.CTkSlider(master=frm_size, from_=0, to=len(vals)-1, number_of_steps=len(vals)-1, 
-			command=self.phsize_change)
-		sld_ph.grid(row=0, column=1)
-		tvar_phsize = tkinter.StringVar(value="...")
-		self.tvar_phsize = tvar_phsize
-
-		customtkinter.CTkLabel(master=frm_size,textvariable=tvar_phsize).grid(row=0, column=2)
-		sld_ph.set(8)
-		self.sld_ph = sld_ph
-		#########################
-
-		bt_scan = customtkinter.CTkButton(master=frame_ctrl, text="SCAN", command=self.scan_click)
-		bt_scan.grid(row=4, column=0,pady=4)
 
 
 		# and this is the map panel
@@ -117,7 +84,7 @@ class ALANNGUI(object):
 
 		### canvas navigation
 		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
-		frame_map_ctrl.grid(row=5, column=0)
+		frame_map_ctrl.grid(row=nrow+1, column=0)
 		
 		# center of the canvas in physical space
 		self.canvas_0 = numpy.asarray([0,0], dtype=numpy.float64)
@@ -137,6 +104,8 @@ class ALANNGUI(object):
 
 		canvas.bind("<Configure>", self.resize)
 		canvas.bind("<Button-1>", self.canvas_onclick)
+		canvas.bind('<Motion>', self._canvas_onMouseMove)
+		canvas.bind('<Leave>', self._canvas_onMouseOut)
 		canvas.bind_all("<w>", self.canvas_onKeyPress)
 		canvas.bind_all("<a>", self.canvas_onKeyPress)
 		canvas.bind_all("<s>", self.canvas_onKeyPress)
@@ -150,6 +119,78 @@ class ALANNGUI(object):
 		
 		
 
+	def _init_scan_panel(self, mainframe):
+
+		frm_scan = customtkinter.CTkFrame(master=mainframe)
+
+		# title label
+		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0)
+
+		# slider panels
+		frm_pxsize = customtkinter.CTkFrame(master=frm_scan) #, fg_color="#FF0000")
+		frm_phsize = customtkinter.CTkFrame(master=frm_scan)
+		frm_angle = customtkinter.CTkFrame(master=frm_scan, name="phangle")
+
+		frm_pxsize.grid(row=1, column=0, padx=0, pady=2)
+		frm_phsize.grid(row=2, column=0, padx=0, pady=2)
+		frm_angle.grid(row=3, column=0, padx=0, pady=2)
+
+
+
+		# image px size panel
+
+		customtkinter.CTkLabel(master=frm_pxsize,text="pixels:").grid(row=0, column=0)
+
+		sld_px = customtkinter.CTkSlider(master=frm_pxsize, from_=6, to=11, number_of_steps=5, command=self.pxsize_change)
+		sld_px.grid(row=0, column=1)
+		self.sld_px = sld_px
+
+		tvar_pxsize = tkinter.StringVar(value="...")
+		self.tvar_pxsize = tvar_pxsize
+		lbl_pxsize = customtkinter.CTkLabel(master=frm_pxsize,textvariable=tvar_pxsize).grid(row=0, column=2)
+		
+		sld_px.set(8)
+		
+
+
+		# img physical size
+
+		customtkinter.CTkLabel(master=frm_phsize,text="size:").grid(row=0, column=0)
+
+		# from 100nm to 12um
+		vals = [e for e in PhysicalSizes]
+		sld_ph = customtkinter.CTkSlider(master=frm_phsize, from_=0, to=len(vals)-1, number_of_steps=len(vals)-1, command=self.phsize_change)
+		sld_ph.grid(row=0, column=1)
+		self.sld_ph = sld_ph
+
+
+		tvar_phsize = tkinter.StringVar(value="...")
+		self.tvar_phsize = tvar_phsize
+
+		customtkinter.CTkLabel(master=frm_phsize,textvariable=tvar_phsize).grid(row=0, column=2)
+		sld_ph.set(8)
+		
+
+
+		# img fast-scan angle
+
+		customtkinter.CTkLabel(master=frm_angle,text="angle:").grid(row=0, column=0)
+		
+		sld_angle = customtkinter.CTkSlider(master=frm_angle, from_=-90, to=90, number_of_steps=180, command=self.phang_change)
+		sld_angle.grid(row=0, column=1)
+		self.sld_angle = sld_angle
+
+		tvar_phang = tkinter.StringVar(value="...")
+		self.tvar_phang = tvar_phang
+		customtkinter.CTkLabel(master=frm_angle,textvariable=tvar_phang).grid(row=0, column=2)
+
+		
+		sld_angle.set(0)
+		
+		bt_scan = customtkinter.CTkButton(master=frm_scan, text="SCAN", command=self.scan_click)
+		bt_scan.grid(row=4, column=0,pady=4)
+
+		return frm_scan
 
 
 	def _init_nav_panel(self, mainframe):
@@ -172,12 +213,23 @@ class ALANNGUI(object):
 		customtkinter.CTkButton(master=frame_map_zoom, text="-", width=40, command=self.bt_nav_zoomOUT).grid(row=0,column=1, padx=4)
 		
 
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:").grid(row=4, column=0)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
 		self.tvar_canvas_res = tkinter.StringVar(value="...")
-		customtkinter.CTkLabel(master=frame_map_ctrl,
-			textvariable=self.tvar_canvas_res).grid(row=4, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_res, text_font=("Terminal",9)).grid(row=4, column=1)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0)
+		self.tvar_canvas_mouse = tkinter.StringVar(value="...")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_mouse, text_font=("Terminal",9)).grid(row=5, column=1)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
+		self.tvar_canvas_scanner = tkinter.StringVar(value="...")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_scanner, text_font=("Terminal",9)).grid(row=6, column=1)
+
+
 
 		return frame_map_ctrl
+
+
 
 
 	def button_function(self):
@@ -198,6 +250,11 @@ class ALANNGUI(object):
 			u = "um"
 		self.tvar_phsize.set("{} {}".format(s,u))
 
+	def phang_change(self,value):
+
+		self.tvar_phang.set("{} deg".format(value))
+
+
 	def scan_click(self):
 
 		print("scanning...")
@@ -207,8 +264,9 @@ class ALANNGUI(object):
 		vals = [e.value for e in PhysicalSizes]
 		size = vals[int(self.sld_ph.get())]
 		npx = int(numpy.power(2, self.sld_px.get()))
-		
-		scan = self.ScanFunction(npx, size, 0)
+		angle = self.sld_angle.get()
+
+		scan = self.ScanFunction(npx, size, angle)
 		self._scans.append(scan)
 		print("scan completed")
 
@@ -294,6 +352,26 @@ class ALANNGUI(object):
 		v+= self.canvas_0
 
 		return v
+
+
+	def _canvas_onMouseMove(self, event):
+		
+		x, y = event.x, event.y
+		c = numpy.asarray([x,y])
+		p = self.canvas_to_physical(c)
+		u = ["nm", "nm"]
+		for i in range(2):
+			if numpy.abs(p[i]) > 1000:
+				p[i] /= 1000
+				u[i] = "um"
+
+		self.tvar_canvas_mouse.set("{:+.3f} {}, {:+.3f} {}".format(p[0],u[0],p[1],u[1]))
+
+
+	def _canvas_onMouseOut(self, event):
+
+		self.tvar_canvas_mouse.set("---")
+
 
 	def canvas_redraw(self):
 
@@ -386,9 +464,12 @@ class ALANNGUI(object):
 
 		#print("canvas corners:",[x0,y0],[xm,ym])
 
+		# TODO: include SPM image rotation
+
+
 		# if both corners of an edge are on the same side of the canvas, the image is out
-		spm_x0 = spm.x_offset
-		spm_xm = spm.x_offset + spm.width
+		spm_x0 = spm.frame_corners[0,0]
+		spm_xm = spm.frame_corners[1,0]
 
 		frame_x0 = numpy.max([x0,spm_x0])
 		frame_xm = numpy.min([xm,spm_xm])
@@ -399,8 +480,8 @@ class ALANNGUI(object):
 			#print("spm is out of canvas (x)")
 			return None
 
-		spm_y0 = spm.y_offset
-		spm_ym = spm.y_offset + spm.height
+		spm_y0 = spm.frame_corners[0,1]
+		spm_ym = spm.frame_corners[2,1]
 
 		frame_y0 = numpy.max([y0,spm_y0])
 		frame_ym = numpy.min([ym,spm_ym])
@@ -413,43 +494,64 @@ class ALANNGUI(object):
 		#print("frame boundaries on spm (x):",[spm_x0,frame_x0],[spm_xm,frame_xm])
 		#print("frame boundaries on spm (y):",[spm_y0,frame_y0],[spm_ym,frame_ym])
 
-		# crop the original spm data 
+
+
+		# convert height values to color
+		# this can make the topography contrast go away quite a bit
 		data = spm.data - self._imgmin # also applies the shift
-		data /= self._imgmax*0.5
+		data /= self._imgmax
 		data *= 255
 
+		# final conversion to bytes and flip vertically
+		data = data.astype(numpy.uint8)
+		data = numpy.flip(data, axis=0)
 
+		# create the PIL image object from data
+		pic = Image.fromarray(data)
+		rot = pic.rotate(spm.angle, expand=True)
+		# make a rotation mask
+		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
+		mask += 255
+		mask = Image.fromarray(mask)
+		mask = mask.rotate(spm.angle, expand=True)
+
+		# this is completely white-transparent image to blend with rot using mask
+		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
+		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
+		bgim = Image.fromarray(bgim, mode="RGBA")
+		bgim = bgim.rotate(spm.angle, expand=True)
+
+		rotm = Image.composite(rot, bgim, mask)
+
+		# crop the image
 		# where is frame_x0 in spm pixel coordinates?
 		frame_px_x0 = int(numpy.floor((frame_x0 - spm_x0) / spm.pixelSize[0]))
 		frame_px_xm = int((frame_xm-spm_x0) / spm.pixelSize[0])
 		if frame_px_xm == 0: frame_px_xm = 1
 
 		#print("frame pixel coords (x)",frame_px_x0,frame_px_xm)
-		data = data[:,frame_px_x0:frame_px_xm+1]
+		#data = data[:,frame_px_x0:frame_px_xm+1]
 
 		frame_px_y0 = int(numpy.floor((frame_y0 - spm_y0) / spm.pixelSize[1]))
 		frame_px_ym = int((frame_ym-spm_y0) / spm.pixelSize[1])
 		if frame_px_ym == 0: frame_px_ym = 1
 
 		#print("frame pixel coords (y)",frame_px_y0,frame_px_ym)
-		data = data[frame_px_y0:frame_px_ym+1]
+		#data = data[frame_px_y0:frame_px_ym+1]
 
-		crop_px = numpy.asarray([data.shape[1],data.shape[0]])
-		crop_nm = crop_px * spm.pixelSize
+		#crop_px = numpy.asarray([data.shape[1],data.shape[0]])
+		#crop_nm = crop_px * spm.pixelSize
 		#print("cropped size {}px - {}nm".format(crop_px, crop_nm))
 
 		#print("data stats",numpy.mean(spm.data),numpy.min(spm.data),numpy.max(spm.data))
 
-		'''
-		#imgmin = numpy.min(spm.data)
-		data = spm.data - self._imgmin
-		data /= self._imgmax*0.5
-		data *= 255
-		'''
-		# final conversion to bytes and flip vertically
-		data = data.astype(numpy.uint8)
-		data = numpy.flip(data, axis=0)
+		# perform the crop
+		cropbox = (frame_px_x0, rotm.size[1]-frame_px_ym, frame_px_xm, rotm.size[1]-frame_px_y0)
+		#print("cropping",rotm.size, cropbox)
+		pic = rotm.crop(cropbox)
+		
 
+		# resample to match canvas resolution
 
 		# we have to make the spm pixels the same size as the canvas pixels
 		# canvas pixel size is 1 / self.canvas_res
@@ -458,18 +560,57 @@ class ALANNGUI(object):
 		trgPXsize = numpy.asarray([1,1]) / self.canvas_res
 		curPXsize = spm.pixelSize
 		scaling = curPXsize / trgPXsize
-		newsize = numpy.round(numpy.asarray([data.shape[1],data.shape[0]]) * scaling)
+		newsize = numpy.round(numpy.asarray([pic.size[0],pic.size[1]]) * scaling)
 		newsize = newsize.astype(numpy.uint32)
 		method = Image.Resampling.BICUBIC
 		if scaling[0] < 1 and scaling[1] < 1:
 			method = Image.Resampling.LANCZOS
 		#print(trgPXsize,curPXsize,scaling,"--",data.shape, newsize)
 
-		
-		pic = Image.fromarray(data)
 		pic = pic.resize(newsize, resample=method)
 		tkpic = ImageTk.PhotoImage(image=pic)
-		#pic.save("canvas.png", format="PNG")
+
+		'''
+		pic = Image.fromarray(data)
+		pic = pic.resize(newsize, resample=method)
+		pic.convert('RGBA')
+		tkpic = ImageTk.PhotoImage(image=pic)
+		pic.save("canvas.png", format="PNG")
+
+		pic2 = pic.rotate(30, expand=True, center=(0,1))
+
+		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
+		mask += 255
+		mask = Image.fromarray(mask)
+		mask = mask.rotate(30, expand=True)
+		mask.save("canvas.mask.png", format="PNG")
+
+		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
+		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
+		bgim = Image.fromarray(bgim, mode="RGBA")
+		bgim = bgim.rotate(30, expand=True)
+		bgim.save("canvas.bgim.png", format="PNG")
+
+		#rotm = Image.composite(pic2, fff, mask)
+		#fff = Image.new('RGBA', pic2.size, (255,)*4)
+		#pic2 = Image.composite(pic2, fff, pic2)
+		pic2.save("canvas.rot.png", format="PNG")
+		'''
+		'''# original image
+		img = Image.open('test.png')
+		# converted to have an alpha layer
+		im2 = img.convert('RGBA')
+		# rotated image
+		rot = im2.rotate(22.2, expand=1)
+		# a white image same size as rotated image
+		fff = Image.new('RGBA', rot.size, (255,)*4)
+		# create a composite image using the alpha layer of rot as a mask
+		out = Image.composite(rot, fff, rot)
+		# save your work (converting back to mode='1' or whatever..)
+		out.convert(img.mode).save('test2.bmp')
+		'''
+
+
 		self._crops.append(tkpic)
 
 
@@ -479,7 +620,7 @@ class ALANNGUI(object):
 		#print("canvas placement:",p,c)
 		self.canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
 		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
-
+		
 		return
 
 
@@ -500,11 +641,18 @@ class ALANNGUI(object):
 		self.canvas.create_text(cw-20-barsize_px/2, ch-10, justify=tkinter.CENTER, text=bartxt)
 
 
+	# makes the crosshair at the scanner position
 	def canvas_redraw_tip(self):
 
 		tip = self.GetTipFunction()
 		ctip = self.physical_to_canvas(tip)
+		u = ["nm","nm"]
+		for i in range(2):
+			if numpy.abs(tip[i]) > 1000:
+				tip[i] /= 1000
+				u[i] = "um"
 
+		self.tvar_canvas_scanner.set("x:{:+.3f} {}, y:{:+.3f} {}".format(tip[0],u[0],tip[1],u[1]))
 		
 		self.canvas.create_line(ctip[0], ctip[1]-8, ctip[0], ctip[1]-2, fill="red")
 		self.canvas.create_line(ctip[0], ctip[1]+8, ctip[0], ctip[1]+2, fill="red")
