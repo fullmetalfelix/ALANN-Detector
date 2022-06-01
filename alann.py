@@ -97,9 +97,8 @@ class Home(customtkinter.CTkFrame):
 
 
 	def __init__(self, parent, controller):	
-		#ttk.Frame.__init__(self, parent)
+
 		customtkinter.CTkFrame.__init__(self, parent)
-		#self. = customtkinter.CTk()  # create CTk window like you do with the Tk window
 		self._scans = []
 	
 		self.grid_rowconfigure(0, weight=1)
