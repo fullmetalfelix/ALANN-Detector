@@ -76,45 +76,49 @@ class ALANNGUI(customtkinter.CTk):
 
 		self.tabInfo = {
 			'TabHome':{
+				'class': 'TabHome',
 				'name': 'Navigation',
 				'button': None,
+				'frame': None
 			},
 			'TabLithoPath':{
-
+				'class': 'TabLithoPath',
+				'name': 'Pathing',
 			}
 		}
 
-		tn = self.tabNames[]
+		col = 0
+		for tn in self.tabInfo.keys():
+			
+			tab = self.tabInfo[tn]
+			cmd = lambda tn=tn: self.tab_show(tn)
+			print(tn,cmd)
 
-		HomeButton = customtkinter.CTkButton(menu, text="Navigation", command=lambda: self.show_frame(TabHome), width=self.menu_width)
-		HomeButton.grid(row=0, column=0, padx=2, pady=2)
-		
-		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path", command = lambda: self.show_frame(RastPath), width=self.menu_width)
-		RastPathButton.grid(row=0, column=1, padx=2, pady=2)
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width)
+			tab['button'].grid(row=0, column=col, padx=2, pady=2)
+			tab['button'].configure(fg_color="#4682bd")
 
-		#menu.grid(row=0,column=0,sticky='nsew')
-
-
-		# dictionary containing all the tabs
-		self.frames = {} 
-
-		for F in (TabHome, RastPath):
-        
-			frame = F(container, self)
-
-			self.frames[F] = frame
-
+			frame = globals()[tn](container, self)
 			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-		
-		self.show_frame(TabHome)
+			tab['frame'] = frame
+
+			col += 1
+
+		self.tab_show('TabHome')
 
 
+	def tab_show(self, tabname):
 
-
-	def show_frame(self, cont): 
 		# brings forward the frame of the tab you want to see
-		frame = self.frames[cont]
-		frame.tkraise()
+		tab = self.tabInfo[tabname]
+
+		for tn in self.tabInfo.keys():
+			if tn != tab['class']:
+				self.tabInfo[tn]['button'].configure(fg_color="#4682bd", state=tk.NORMAL)
+
+		tab['button'].configure(fg_color="#46bd64", state=tk.DISABLED)
+		tab['frame'].tkraise()
+
 
 
 
@@ -735,7 +739,7 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
-class RastPath(customtkinter.CTkFrame):
+class TabLithoPath(customtkinter.CTkFrame):
 
 	def __init__(self, parent, controller):
 		customtkinter.CTkFrame.__init__(self,parent)
@@ -795,7 +799,7 @@ class RastPath(customtkinter.CTkFrame):
 
 		#######################################
 
-		# auto-resizing for frames within RastPath (rast_prop and plotframe)
+		# auto-resizing for frames within TabLithoPath (rast_prop and plotframe)
 		rows = [4,5]
 		columns = [2]
 		resizing(self, rows, columns)
@@ -951,9 +955,9 @@ if __name__ == "__main__":
 	# create the gui
 	gui = ALANNGUI()
 	# assign a scan function
-	gui.frames[TabHome].ScanFunction = scn.ScanImage
-	gui.frames[TabHome].MoveTipFunction = scn.MoveTip
-	gui.frames[TabHome].GetTipFunction = scn.GetTip
+	gui.tabInfo['TabHome']['frame'].ScanFunction = scn.ScanImage
+	gui.tabInfo['TabHome']['frame'].MoveTipFunction = scn.MoveTip
+	gui.tabInfo['TabHome']['frame'].GetTipFunction = scn.GetTip
 
 
 	# run the app
