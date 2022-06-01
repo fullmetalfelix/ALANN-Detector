@@ -16,7 +16,7 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib import pyplot as plt
-from gds_conv import* # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
+import gds_conv # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
 
 
 
@@ -73,6 +73,7 @@ class ALANNGUI(customtkinter.CTk):
 
 
 		self.menu_width=90
+
 		self.tabInfo = {
 			'TabHome':{
 				'name': 'Navigation',
@@ -90,9 +91,6 @@ class ALANNGUI(customtkinter.CTk):
 		
 		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path", command = lambda: self.show_frame(RastPath), width=self.menu_width)
 		RastPathButton.grid(row=0, column=1, padx=2, pady=2)
-
-		testBT = GUITabButton(menu, self, 2, self.menu_width)
-
 
 		#menu.grid(row=0,column=0,sticky='nsew')
 
@@ -131,11 +129,9 @@ class TabHome(customtkinter.CTkFrame):
 
 
 	def __init__(self, parent, controller):	
-
 		
 		customtkinter.CTkFrame.__init__(self, parent)
 		
-
 		self._scans = []
 	
 		self.grid_rowconfigure(0, weight=1)
@@ -740,157 +736,188 @@ class TabHome(customtkinter.CTkFrame):
 
 
 class RastPath(customtkinter.CTkFrame):
-    
-    def __init__(self, parent, controller):
-        customtkinter.CTkFrame.__init__(self,parent)
 
-        self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
-        # contain options to choose from on how to write. This dictionary will contain those frames
+	def __init__(self, parent, controller):
+		customtkinter.CTkFrame.__init__(self,parent)
 
-        # title
-        title = customtkinter.CTkLabel(self, text="Raster Path Determination", text_font = ("Helvetica",33) )
-        title.grid(row=0,column=1, columnspan=3)
-        description = customtkinter.CTkLabel(self, text = "Load a file (.txt, .mat, .bmap,...)", text_font = ("Helvetica",15))
-        description.grid(row=1, column=1, columnspan=3)
+		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
+		# contain options to choose from on how to write. This dictionary will contain those frames
 
-        ############################
-        # frame with the right plot
-        ###########################
-        self.plotr = PlotFrame(self, parent, load=True)
-        self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
-        ##########################################
+		# title
+		title = customtkinter.CTkLabel(self, text="Raster Path Determination", text_font = ("Helvetica",33) )
+		title.grid(row=0,column=1, columnspan=3)
+		description = customtkinter.CTkLabel(self, text = "Load a file (.txt, .mat, .bmap,...)", text_font = ("Helvetica",15))
+		description.grid(row=1, column=1, columnspan=3)
 
-        #######################################
-        # frame for Raster Properties
-        #######################################
-        self.rast_prop = customtkinter.CTkFrame(self)
-        self.rast_prop.grid(row=4,column=1, sticky='nsew')
-        layer_label = customtkinter.CTkLabel(self.rast_prop, text="Raster Properties", text_font=('Helvetica', 15)).grid(row=0, columnspan=2, pady=5, padx=10, sticky='ew')
+		############################
+		# frame with the right plot
+		###########################
+		self.plotr = PlotFrame(self, parent, load=True)
+		self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
+		##########################################
 
-        # Entry fields and their labels
-        options = ['Matrix Script','.txt file']
-        self.var = tk.StringVar(self.rast_prop)
-        ExportAsType = ttk.OptionMenu(self.rast_prop, self.var, options[0], *options, command = self.change_rast_prop ).grid(row=1, column=1, pady=5, padx=10, sticky='ew')
-        ExportAsType_label = customtkinter.CTkLabel(self.rast_prop, text="Export as: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=5, padx=10,sticky='ew')
-        self.writeFieldSize = customtkinter.CTkEntry(self.rast_prop)
-        self.writeFieldSize.grid(row=5, column=1,pady=5,  padx=10,sticky='ew')
-        writeFieldSize_label = customtkinter.CTkLabel(self.rast_prop, text="Write Field Size [nm]: ", text_font=('Helvetica', 10)).grid(row=5, column=0, pady=5, padx=10,sticky='ew')
-        Pitch = customtkinter.CTkEntry(self.rast_prop).grid(row=2, column=1,pady=5, padx=10, sticky='ew')
-        Pitch_label = customtkinter.CTkLabel(self.rast_prop, text="Pitch [nm]: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=5, padx=10,sticky='ew')
-        self.WriteSpeed = customtkinter.CTkEntry(self.rast_prop)
-        self.WriteSpeed.grid(row=6, column=1, pady=5, padx=10, sticky='ew')
-        WriteSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Write Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=6, column=0, pady=5, padx=10, sticky='ew')
-        self.IdleSpeed = customtkinter.CTkEntry(self.rast_prop)
-        self.IdleSpeed.grid(row=7, column=1,pady=5, padx=10, sticky='ew')
-        IdleSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Idle Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=7, column=0, pady=5, padx=10,sticky='ew')
-        InvertImg = customtkinter.CTkCheckBox(self.rast_prop,text="Invert Image?").grid(row=8, column=0, columnspan=2,pady=5,padx=10, sticky='n')
-         
-        ConvRastPathButton = customtkinter.CTkButton(self.rast_prop, text='Convert and Export Raster Paths', command = lambda: self.convert(self.plotr) )
-        ConvRastPathButton.grid(row=10, columnspan=2, pady=5 , padx=10)
+		#######################################
+		# frame for Raster Properties
+		#######################################
+		self.rast_prop = customtkinter.CTkFrame(self)
+		self.rast_prop.grid(row=4,column=1, sticky='nsew')
+		layer_label = customtkinter.CTkLabel(self.rast_prop, text="Raster Properties", text_font=('Helvetica', 15)).grid(row=0, columnspan=2, pady=5, padx=10, sticky='ew')
 
-        #######################################
+		# Entry fields and their labels
+		options = ['Matrix Script','.txt file']
+		self.var_type = tk.StringVar(self.rast_prop)
+		ExportAsType = ttk.OptionMenu(self.rast_prop, self.var_type, options[0], *options, command = self.change_rast_prop ).grid(row=1, column=1, pady=5, padx=10, sticky='ew')
+		ExportAsType_label = customtkinter.CTkLabel(self.rast_prop, text="Export as: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=5, padx=10,sticky='ew')
 
-        # auto-resizing for frames within RastPath (rast_prop and plotframe)
-        rows = [4,5]
-        columns = [2]
-        resizing(self, rows, columns)
+		self.write_field = tk.StringVar(self.rast_prop)
+		self.writeFieldSize = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_field)
+		self.writeFieldSize.grid(row=5, column=1,pady=5,  padx=10,sticky='ew')
+		writeFieldSize_label = customtkinter.CTkLabel(self.rast_prop, text="Write Field Size [nm]: ", text_font=('Helvetica', 10)).grid(row=5, column=0, pady=5, padx=10,sticky='ew')
 
-    def change_rast_prop(self,variable):
-        variable = self.var.get()
-        if variable=='.txt file':
-            self.writeFieldSize.config(state=tk.DISABLED)
-            self.WriteSpeed.config(state=tk.DISABLED)
-            self.IdleSpeed.config(state=tk.DISABLED)
-        if variable=='Matrix Script':
-            self.writeFieldSize.config(state=tk.NORMAL)
-            self.WriteSpeed.config(state=tk.NORMAL)
-            self.IdleSpeed.config(state=tk.NORMAL)
+		self.pitch = tk.StringVar(self.rast_prop)
+		Pitch = customtkinter.CTkEntry(self.rast_prop, textvariable= self.pitch).grid(row=2, column=1,pady=5, padx=10, sticky='ew')
+		Pitch_label = customtkinter.CTkLabel(self.rast_prop, text="Pitch [nm]: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=5, padx=10,sticky='ew')
 
-    def convert(self, plot):
-        pass
-    
-    def open_file(self, child, a, canvaz):
+		self.write_speed = tk.StringVar(self.rast_prop)
+		self.WriteSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_speed)
+		self.WriteSpeed.grid(row=6, column=1, pady=5, padx=10, sticky='ew')
+		WriteSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Write Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=6, column=0, pady=5, padx=10, sticky='ew')
+
+		self.idle_speed = tk.StringVar(self.rast_prop)
+		self.IdleSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.idle_speed)
+		self.IdleSpeed.grid(row=7, column=1,pady=5, padx=10, sticky='ew')
+		IdleSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Idle Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=7, column=0, pady=5, padx=10,sticky='ew')
+
+		InvertImg = customtkinter.CTkCheckBox(self.rast_prop,text="Invert Image?").grid(row=8, column=0, columnspan=2,pady=5,padx=10, sticky='n')
+
+		ConvRastPathButton = customtkinter.CTkButton(self.rast_prop, text='Convert and Export Raster Paths', command = lambda: self.convert() )
+		ConvRastPathButton.grid(row=10, columnspan=2, pady=5 , padx=10)
+
+		#######################################
+
+		# auto-resizing for frames within RastPath (rast_prop and plotframe)
+		rows = [4,5]
+		columns = [2]
+		resizing(self, rows, columns)
+
+	def change_rast_prop(self,variable):
+		variable = self.var_type.get()
+		if variable=='.txt file':
+			self.writeFieldSize.config(state=tk.DISABLED)
+			self.WriteSpeed.config(state=tk.DISABLED)
+			self.IdleSpeed.config(state=tk.DISABLED)
+		if variable=='Matrix Script':
+			self.writeFieldSize.config(state=tk.NORMAL)
+			self.WriteSpeed.config(state=tk.NORMAL)
+			self.IdleSpeed.config(state=tk.NORMAL)
+
+	def convert(self):
+	# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
+		# clear plot
+		self.plotr.subplot.clear()
+		# define variables
+		#write_field = int(self.write_field.get())
+		pitch = int(self.pitch.get())
+		#write_speed = int(self.write_speed.get())
+		#idle_speed = int(self.idle_speed.get())
+		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the gds_conv.py file)
+		# get vector scan coordinates for each shape
+		for shape in self.plotr.content.shapes:
+			write_type = self.frame_options_dict[shape].var_scan.get()
+			scan_type = self.frame_options_dict[shape].var_fill.get() 
+			self.shapes[shape] = gds_conv.shape(self.plotr.content.shapes[shape]['coordinates'])
+			self.shapes[shape].vector_scan(write_type, scan_type, pitch)
+		# plot the new cooords
+		self.plotr.update_plot(self.shapes)
+		self.plotr.canvaz.draw()
+
+	def open_file(self, child, subplot, canvaz):
 		# allows for file loading using file explorer window
-        file = filedialog.askopenfile(mode='r')
-        if file:
-            child.content = GDS_file(file)
-            file.close()
-        a.clear()
-        shapes={}
-        for i in range(child.content.num_shapes):
-            x = child.content.shapes[i]['coordinates'][:,0]
-            y = child.content.shapes[i]['coordinates'][:,1]
-            a.plot(x,y, label="Shape "+str(i))
-            a.legend()
-            self.make_shape_frame(i)
-            canvaz.draw()
-    
-    def make_shape_frame(self, n):
+		# child is the frame the plot is in that contains the dictionary with the shapes
+		file = filedialog.askopenfile(mode='r')
+		if file:
+			child.content = gds_conv.GDS_file(file)
+			file.close()
+		subplot.clear()
+		for i in child.content.shapes:
+			x = child.content.shapes[i]['coordinates'][:,0]
+			y = child.content.shapes[i]['coordinates'][:,1]	
+			subplot.plot(x,y, label="Shape "+str(i))
+			subplot.legend()
+			self.make_shape_frame(i)
+			canvaz.draw()
+
+	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
-        self.frame_options_dict[n] = shape_frame(self, n)
-        resizing(self, [5+n],[])
-        self.plotr.grid(rowspan=n+2)
+		self.frame_options_dict[n] = shape_frame(self, n)
+		resizing(self, [5+n],[])
+		self.plotr.grid(rowspan=n+2)
 
-    def clear(self,a, canvas):
+	def clear(self,subplot, canvas):
 		# gets rid of everything in the plot and deletes the panels made by make_shape_frame
-        a.clear()
-        canvas.draw()
-        for i in self.frame_options_dict:
-            self.frame_options_dict[i].grid_forget()
-            self.frame_options_dict[i].destroy()
+		subplot.clear()
+		canvas.draw()
+		for i in self.frame_options_dict:
+			self.frame_options_dict[i].grid_forget()
+			self.frame_options_dict[i].destroy()
 
-        
+
 class shape_frame(customtkinter.CTkFrame):
-    #######################
-    # Frame which appears to let you select the different write options for the shapes
-    #######################
+	#######################
+	# Frame which appears to let you select the different write options for the shapes
+	#######################
 	def __init__(self, parent, n):
 		customtkinter.CTkFrame.__init__(self, parent)
 		self.grid(row=5+n,column=1, sticky='nesw')
 		label = customtkinter.CTkLabel(self, text="Shape "+str(n), text_font=('Helvetica', 10)).grid(row=0, column=1, pady=5, padx=10, sticky='n')
-        
+
 		self.var_scan = tk.StringVar(self)
 		options_scan = ['X-serpentine', 'Y-serpentine', 'Spiral', 'more tbc']
-		WriteType = ttk.OptionMenu(self, self.var_scan, options_scan[0], *options_scan, command = self.change_type ).grid(row=1, column=2, pady=5,padx=10, sticky='e')
+		WriteType = ttk.OptionMenu(self, self.var_scan, options_scan[0], *options_scan ).grid(row=1, column=2, pady=5,padx=10, sticky='e')
 		WriteType_label = customtkinter.CTkLabel(self, text="Write type: ", text_font=('Helvetica', 10)).grid(row=1, column=1, pady=5, padx=10,sticky='w')
-        
+
 		self.var_fill = tk.StringVar(self)
 		options_fill = ['Only fill', 'Fill and outline']
-		ScanType = ttk.OptionMenu(self, self.var_fill, options_fill[0], *options_fill, command = self.change_type ).grid(row=1, column=4, pady=5,padx=10, sticky='e')
+		ScanType = ttk.OptionMenu(self, self.var_fill, options_fill[0], *options_fill  ).grid(row=1, column=4, pady=5,padx=10, sticky='e')
 		ScanType_label = customtkinter.CTkLabel(self, text="Scan type: ", text_font=('Helvetica', 10)).grid(row=1, column=3, pady=5, padx=10, sticky='w')
 
-	def change_type(self, variable):
-		pass
 
 
 class PlotFrame(customtkinter.CTkFrame):
-    ###########################
-    # frame with a matplotlib plot
-    ###########################
-    def __init__(self, parent, controller, load=False):
-        customtkinter.CTkFrame.__init__(self, parent, width=150, height=150) 
-        #make our figure and add blank plot
-        f = Figure(figsize=(2,3), dpi=100)
-        a = f.add_subplot(111)
-        self.content = None
+	###########################
+	# frame with a matplotlib plot
+	###########################
+	def __init__(self, parent, controller, load=False):
+		customtkinter.CTkFrame.__init__(self, parent, width=150, height=150) 
+		#make our figure and add blank plot
+		f = Figure(figsize=(2,3), dpi=100)
+		self.subplot = f.add_subplot(111)
+		self.content = None
 
-        canvaz = FigureCanvasTkAgg(f, self) 
-        canvaz.draw()
-        canvaz.get_tk_widget().pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10,pady=10)
+		self.canvaz = FigureCanvasTkAgg(f, self) 
+		self.canvaz.draw()
+		self.canvaz.get_tk_widget().pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10,pady=10)
 
-        toolbar = NavigationToolbar2Tk(canvaz, self)
-        toolbar.update()
-        canvaz._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20,pady=10)
-        #button to clear the canvaz
-        clear = customtkinter.CTkButton(self, text='Clear', command = lambda: parent.clear(a, canvaz) )
-        clear.pack(side=tk.LEFT,padx=5,pady=5)
-        
-        if load:
-            load = customtkinter.CTkButton(self, text='Load', command = lambda: parent.open_file(self, a, canvaz) ) 
-            #makes a button that carries out the open_file function when clicked
-            load.pack(side=tk.LEFT,padx=5,pady=5)
-            # method that allows you to browse
+		toolbar = NavigationToolbar2Tk(self.canvaz, self)
+		toolbar.update()
+		self.canvaz._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20,pady=10)
+		#button to clear the canvaz
+		clear = customtkinter.CTkButton(self, text='Clear', command = lambda: parent.clear(self.subplot, self.canvaz) )
+		clear.pack(side=tk.LEFT,padx=5,pady=5)
 
+		if load:
+			load = customtkinter.CTkButton(self, text='Load', command = lambda: parent.open_file(self, self.subplot, self.canvaz) ) 
+			#makes a button that carries out the open_file function when clicked
+			load.pack(side=tk.LEFT,padx=5,pady=5)
+			# method that allows you to browse
+
+	def update_plot(self, shapes):
+		for shape in shapes:
+			x = shapes[shape].coords[:,0]
+			y = shapes[shape].coords[:,1]	
+			self.subplot.plot(x,y,linewidth=0.5, label='Shape '+str(shape))
+		self.subplot.legend()
+		self.canvaz.draw()	
 
 
 
