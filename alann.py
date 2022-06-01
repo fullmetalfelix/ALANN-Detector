@@ -49,51 +49,81 @@ def resizing(frame, rows, columns, weight=1):
 
 
 
+# this is the main window which contains the different tabs and controls which is being seen
 class ALANNGUI(customtkinter.CTk):
-	# this is the main window which contains the different tabs and controls which is being seen
 
 
 	def __init__(self, *args, **kwargs):
+
 		customtkinter.CTk.__init__(self, *args, **kwargs)
 		self.geometry("1200x800")
+		self.title('ALANN')
+
+		# this is the main container
 		container = customtkinter.CTkFrame(self)
 		container.pack(side="top", fill="both", expand=True)
-		self.title('ALANN') 
-		resizing(container, [0], [2])
+		#container.grid(row=0, column=0, sticky="nsew")
+		
+		# what does this do?
+		resizing(container, [1], [0])
 
 		# vertical side menu that allows navigation to different tabs
 		menu = customtkinter.CTkFrame(container)
+		menu.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+
+
 		self.menu_width=90
-		HomeButton = customtkinter.CTkButton(menu, text="Home",
-						command=lambda: self.show_frame(Home), width=self.menu_width)
-		HomeButton.grid(row=1,column=1, sticky='n')
-		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path",
-	                    command = lambda: self.show_frame(RastPath), width=self.menu_width)
-		RastPathButton.grid(row=3,column=1, sticky='n')
-		menu.grid(row=0,column=0,sticky='nsew')
+		self.tabInfo = {
+			'TabHome':{
+				'name': 'Navigation',
+				'button': 
+			},
+			'TabLithoPath':{
+
+			}
+		}
+
+		tn = self.tabNames[]
+
+		HomeButton = customtkinter.CTkButton(menu, text="Navigation", command=lambda: self.show_frame(TabHome), width=self.menu_width)
+		HomeButton.grid(row=0, column=0, padx=2, pady=2)
+		
+		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path", command = lambda: self.show_frame(RastPath), width=self.menu_width)
+		RastPathButton.grid(row=0, column=1, padx=2, pady=2)
+
+		testBT = GUITabButton(menu, self, 2, self.menu_width)
+
+
+		#menu.grid(row=0,column=0,sticky='nsew')
 
 
 		# dictionary containing all the tabs
 		self.frames = {} 
 
-		for F in (Home, RastPath):
+		for F in (TabHome, RastPath):
         
 			frame = F(container, self)
 
 			self.frames[F] = frame
 
-			frame.grid(row=0, column=2, sticky="nsew")
+			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
 		
-		self.show_frame(Home)
+		self.show_frame(TabHome)
+
+
+
 
 	def show_frame(self, cont): 
-	# brings forward the frame of the tab you want to see
+		# brings forward the frame of the tab you want to see
 		frame = self.frames[cont]
 		frame.tkraise()
 
 
 
-class Home(customtkinter.CTkFrame):
+
+
+# this is the main navigation/scanning panel of the GUI
+class TabHome(customtkinter.CTkFrame):
 	
 	# max image size is 12 um
 	# more values in between are needed
@@ -101,9 +131,11 @@ class Home(customtkinter.CTkFrame):
 
 
 	def __init__(self, parent, controller):	
-		#ttk.Frame.__init__(self, parent)
+
+		
 		customtkinter.CTkFrame.__init__(self, parent)
-		#self. = customtkinter.CTk()  # create CTk window like you do with the Tk window
+		
+
 		self._scans = []
 	
 		self.grid_rowconfigure(0, weight=1)
@@ -115,11 +147,6 @@ class Home(customtkinter.CTkFrame):
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 		self.frame_ctrl = frame_ctrl
 
-
-	# this should be the main control panel
-		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4, name="controls")
-		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
-		self.frame_ctrl = frame_ctrl
 
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Controls").grid(row=0, column=0)
@@ -185,17 +212,7 @@ class Home(customtkinter.CTkFrame):
 		frm_scan = customtkinter.CTkFrame(master=mainframe)
 
 		# title label
-		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0)
-
-		# slider panels
-		#frm_pxsize = customtkinter.CTkFrame(master=frm_scan) #, fg_color="#FF0000")
-		frm_phsize = customtkinter.CTkFrame(master=frm_scan)
-		frm_angle = customtkinter.CTkFrame(master=frm_scan, name="phangle")
-
-		frm_pxsize.grid(row=1, column=0, padx=0, pady=2)
-		frm_phsize.grid(row=2, column=0, padx=0, pady=2)
-		frm_angle.grid(row=3, column=0, padx=0, pady=2)
-
+		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0, columnspan=3)
 		nrow = 1
 
 		# image px size panel
@@ -211,45 +228,46 @@ class Home(customtkinter.CTkFrame):
 		lbl_pxsize = customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_pxsize).grid(row=nrow, column=2)
 		
 		sld_px.set(8)
-		
+		nrow += 1
 
 
 		# img physical size
 
-		customtkinter.CTkLabel(master=frm_phsize,text="size:").grid(row=0, column=0)
+		customtkinter.CTkLabel(master=frm_scan,text="size:").grid(row=nrow, column=0)
 
 		# from 100nm to 12um
 		vals = [e for e in PhysicalSizes]
-		sld_ph = customtkinter.CTkSlider(master=frm_phsize, from_=0, to=len(vals)-1, number_of_steps=len(vals)-1, command=self.phsize_change)
-		sld_ph.grid(row=0, column=1)
+		sld_ph = customtkinter.CTkSlider(master=frm_scan, from_=0, to=len(vals)-1, number_of_steps=len(vals)-1, command=self.phsize_change)
+		sld_ph.grid(row=nrow, column=1)
 		self.sld_ph = sld_ph
 
 
 		tvar_phsize = tk.StringVar(value="...")
 		self.tvar_phsize = tvar_phsize
 
-		customtkinter.CTkLabel(master=frm_phsize,textvariable=tvar_phsize).grid(row=0, column=2)
+		customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_phsize).grid(row=nrow, column=2)
 		sld_ph.set(8)
-		
+		nrow += 1
 
 
 		# img fast-scan angle
 
-		customtkinter.CTkLabel(master=frm_angle,text="angle:").grid(row=0, column=0)
+		customtkinter.CTkLabel(master=frm_scan,text="angle:").grid(row=nrow, column=0)
 		
-		sld_angle = customtkinter.CTkSlider(master=frm_angle, from_=-90, to=90, number_of_steps=180, command=self.phang_change)
-		sld_angle.grid(row=0, column=1)
+		sld_angle = customtkinter.CTkSlider(master=frm_scan, from_=-90, to=90, number_of_steps=180, command=self.phang_change)
+		sld_angle.grid(row=nrow, column=1)
 		self.sld_angle = sld_angle
 
 		tvar_phang = tk.StringVar(value="...")
 		self.tvar_phang = tvar_phang
-		customtkinter.CTkLabel(master=frm_angle,textvariable=tvar_phang).grid(row=0, column=2)
+		customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_phang).grid(row=nrow, column=2)
 
 		
 		sld_angle.set(0)
-		
+		nrow += 1
+
 		bt_scan = customtkinter.CTkButton(master=frm_scan, text="SCAN", command=self.scan_click)
-		bt_scan.grid(row=4, column=0,pady=4)
+		bt_scan.grid(row=nrow, column=1,pady=4)
 
 		return frm_scan
 
@@ -719,6 +737,8 @@ class Home(customtkinter.CTkFrame):
 		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
 
+
+
 class RastPath(customtkinter.CTkFrame):
     
     def __init__(self, parent, controller):
@@ -904,9 +924,9 @@ if __name__ == "__main__":
 	# create the gui
 	gui = ALANNGUI()
 	# assign a scan function
-	gui.frames[Home].ScanFunction = scn.ScanImage
-	gui.frames[Home].MoveTipFunction = scn.MoveTip
-	gui.frames[Home].GetTipFunction = scn.GetTip
+	gui.frames[TabHome].ScanFunction = scn.ScanImage
+	gui.frames[TabHome].MoveTipFunction = scn.MoveTip
+	gui.frames[TabHome].GetTipFunction = scn.GetTip
 
 
 	# run the app
