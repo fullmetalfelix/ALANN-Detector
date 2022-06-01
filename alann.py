@@ -76,7 +76,7 @@ class ALANNGUI(customtkinter.CTk):
 		self.tabInfo = {
 			'TabHome':{
 				'name': 'Navigation',
-				'button': 
+				'button': None,
 			},
 			'TabLithoPath':{
 
