@@ -2,11 +2,15 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog # needed so we can open a file explorer window when looking for the .gds/.bmp/etc files
 import customtkinter
+
 import numpy
 from enum import IntEnum
+
 from scanner import Sample, SampleCheck, Scanner, SPM
+
 import PIL
 from PIL import Image, ImageTk
+
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -202,7 +206,7 @@ class Home(customtkinter.CTkFrame):
 		sld_px.grid(row=0, column=1)
 		self.sld_px = sld_px
 
-		tvar_pxsize = tkinter.StringVar(value="...")
+		tvar_pxsize = tk.StringVar(value="...")
 		self.tvar_pxsize = tvar_pxsize
 		lbl_pxsize = customtkinter.CTkLabel(master=frm_pxsize,textvariable=tvar_pxsize).grid(row=0, column=2)
 		
@@ -221,7 +225,7 @@ class Home(customtkinter.CTkFrame):
 		self.sld_ph = sld_ph
 
 
-		tvar_phsize = tkinter.StringVar(value="...")
+		tvar_phsize = tk.StringVar(value="...")
 		self.tvar_phsize = tvar_phsize
 
 		customtkinter.CTkLabel(master=frm_phsize,textvariable=tvar_phsize).grid(row=0, column=2)
@@ -237,7 +241,7 @@ class Home(customtkinter.CTkFrame):
 		sld_angle.grid(row=0, column=1)
 		self.sld_angle = sld_angle
 
-		tvar_phang = tkinter.StringVar(value="...")
+		tvar_phang = tk.StringVar(value="...")
 		self.tvar_phang = tvar_phang
 		customtkinter.CTkLabel(master=frm_angle,textvariable=tvar_phang).grid(row=0, column=2)
 
@@ -271,15 +275,15 @@ class Home(customtkinter.CTkFrame):
 		
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
-		self.tvar_canvas_res = tkinter.StringVar(value="...")
+		self.tvar_canvas_res = tk.StringVar(value="...")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_res, text_font=("Terminal",9)).grid(row=4, column=1)
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0)
-		self.tvar_canvas_mouse = tkinter.StringVar(value="...")
+		self.tvar_canvas_mouse = tk.StringVar(value="...")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_mouse, text_font=("Terminal",9)).grid(row=5, column=1)
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
-		self.tvar_canvas_scanner = tkinter.StringVar(value="...")
+		self.tvar_canvas_scanner = tk.StringVar(value="...")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_scanner, text_font=("Terminal",9)).grid(row=6, column=1)
 
     
