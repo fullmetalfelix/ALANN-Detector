@@ -126,7 +126,7 @@ class ALANNGUI(customtkinter.CTk):
 # this is the main navigation/scanning panel of the GUI
 class TabHome(customtkinter.CTkFrame):
 	
-	# max image size is 12 um
+	# max image size is 12 μm
 	# more values in between are needed
 	# 1200nm 4.5um ...
 
@@ -327,7 +327,7 @@ class TabHome(customtkinter.CTkFrame):
 
 		if s >= 1000:
 			s /= 1000
-			u = "um"
+			u = "μm"
 		self.tvar_phsize.set("{} {}".format(s,u))
 
 	def phang_change(self,value):
@@ -443,7 +443,7 @@ class TabHome(customtkinter.CTkFrame):
 		for i in range(2):
 			if numpy.abs(p[i]) > 1000:
 				p[i] /= 1000
-				u[i] = "um"
+				u[i] = "μm"
 
 		self.tvar_canvas_mouse.set("{:+.3f} {}, {:+.3f} {}".format(p[0],u[0],p[1],u[1]))
 
@@ -708,16 +708,18 @@ class TabHome(customtkinter.CTkFrame):
 		cw = self.canvas.winfo_width()
 		ch = self.canvas.winfo_height()
 
+		barheight = 20
+
 		# draw the scale bar
 		barsize_px = 0.1 * cw # bar size in pixels - how many nm is that?
 		barsize_nm = barsize_px / self.canvas_res # size in nm -> round it
 		barsize_nm = numpy.round(barsize_nm) # then get the fixed pixel count
 		barsize_px = numpy.round(barsize_nm * self.canvas_res)
 		bartxt = "{} nm".format(barsize_nm)
-		if barsize_nm > 1000: bartxt = "{} um".format(barsize_nm/1000)
-		self.canvas.create_rectangle(cw-20-barsize_px, ch-20-10, cw-20, ch-20, fill="black",outline="white", width=2)
-		self.canvas.create_rectangle(cw-20-2*barsize_px, ch-20-10+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
-		self.canvas.create_text(cw-20-barsize_px/2, ch-10, justify=tk.CENTER, text=bartxt)
+		if barsize_nm > 1000: bartxt = "{} μm".format(barsize_nm/1000)
+		self.canvas.create_rectangle(cw-20-barsize_px, ch-20-barheight, cw-20, ch-20, fill="black",outline="white", width=2)
+		self.canvas.create_rectangle(cw-20-2*barsize_px, ch-20-barheight+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
+		self.canvas.create_text(cw-20-barsize_px/2, ch-20-barheight/2, justify=tk.CENTER, text=bartxt, fill="white")
 
 
 	# makes the crosshair at the scanner position
@@ -729,7 +731,7 @@ class TabHome(customtkinter.CTkFrame):
 		for i in range(2):
 			if numpy.abs(tip[i]) > 1000:
 				tip[i] /= 1000
-				u[i] = "um"
+				u[i] = "μm"
 
 		self.tvar_canvas_scanner.set("x:{:+.3f} {}, y:{:+.3f} {}".format(tip[0],u[0],tip[1],u[1]))
 		
