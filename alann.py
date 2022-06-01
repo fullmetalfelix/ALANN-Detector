@@ -1,16 +1,25 @@
-import tkinter
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog # needed so we can open a file explorer window when looking for the .gds/.bmp/etc files
 import customtkinter
 import numpy
 from enum import IntEnum
 from scanner import Sample, SampleCheck, Scanner, SPM
 import PIL
 from PIL import Image, ImageTk
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
+from matplotlib import pyplot as plt
+from gds_conv import* # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
 
 
 
 customtkinter.set_appearance_mode("dark")  # Modes: system (default), light, dark
 customtkinter.set_default_color_theme("dark-blue")  # Themes: blue (default), dark-blue, green
+
+
 
 
 class PhysicalSizes(IntEnum):
@@ -27,49 +36,97 @@ class PhysicalSizes(IntEnum):
 	i10um = 10000
 	i12um = 12000
 
+def resizing(frame, rows, columns, weight=1):
+	#function that takes in a list of rows and columns that should be dynamically resized as the window is resized
+	for i in rows:
+		frame.grid_rowconfigure(i, weight=1)
+	for i in columns:
+		frame.grid_columnconfigure(i, weight=1)
 
-class ALANNGUI(object):
 
 
+class ALANNGUI(customtkinter.CTk):
+	# this is the main window which contains the different tabs and controls which is being seen
+
+
+	def __init__(self, *args, **kwargs):
+		customtkinter.CTk.__init__(self, *args, **kwargs)
+		self.geometry("1200x800")
+		container = customtkinter.CTkFrame(self)
+		container.pack(side="top", fill="both", expand=True)
+		self.title('ALANN') 
+		resizing(container, [0], [2])
+
+		# vertical side menu that allows navigation to different tabs
+		menu = customtkinter.CTkFrame(container)
+		self.menu_width=90
+		HomeButton = customtkinter.CTkButton(menu, text="Home",
+						command=lambda: self.show_frame(Home), width=self.menu_width)
+		HomeButton.grid(row=1,column=1, sticky='n')
+		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path",
+	                    command = lambda: self.show_frame(RastPath), width=self.menu_width)
+		RastPathButton.grid(row=3,column=1, sticky='n')
+		menu.grid(row=0,column=0,sticky='nsew')
+
+
+		# dictionary containing all the tabs
+		self.frames = {} 
+
+		for F in (Home, RastPath):
+        
+			frame = F(container, self)
+
+			self.frames[F] = frame
+
+			frame.grid(row=0, column=2, sticky="nsew")
+		
+		self.show_frame(Home)
+
+	def show_frame(self, cont): 
+	# brings forward the frame of the tab you want to see
+		frame = self.frames[cont]
+		frame.tkraise()
+
+
+
+class Home(customtkinter.CTkFrame):
+	
 	# max image size is 12 um
 	# more values in between are needed
 	# 1200nm 4.5um ...
 
 
-	def __init__(self):
-
+	def __init__(self, parent, controller):	
+		#ttk.Frame.__init__(self, parent)
+		customtkinter.CTkFrame.__init__(self, parent)
+		#self. = customtkinter.CTk()  # create CTk window like you do with the Tk window
 		self._scans = []
-
-		root_tk = customtkinter.CTk()  # create CTk window like you do with the Tk window
-		root_tk.geometry("1200x800")
-		root_tk.title("ALANN")
-
-
-		root_tk.grid_rowconfigure(0, weight=1)
-		root_tk.grid_columnconfigure(0, weight=0, minsize=200)
-		root_tk.grid_columnconfigure(1, weight=2, minsize=400)
-
+	
+		self.grid_rowconfigure(0, weight=1)
+		self.grid_columnconfigure(0, weight=0, minsize=200)
+		self.grid_columnconfigure(1, weight=2, minsize=400)
 
 		# this should be the main control panel
-		frame_ctrl = customtkinter.CTkFrame(master=root_tk, width=250, height=240, corner_radius=4, name="controls")
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4, name="controls")
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 		self.frame_ctrl = frame_ctrl
 
 
+	# this should be the main control panel
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4, name="controls")
+		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+		self.frame_ctrl = frame_ctrl
 
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Controls").grid(row=0, column=0)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
 		frm_scan.grid(row=1, column=0, pady=4)
-
 		
 		nrow = 1
 
-
-
 		# and this is the map panel
-		frame_map = customtkinter.CTkFrame(master=root_tk, width=250, height=240, corner_radius=4)
+		frame_map = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4)
 		frame_map.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
 
 		frame_map.grid_columnconfigure(0, weight=2)
@@ -78,7 +135,7 @@ class ALANNGUI(object):
 		#frame_map.grid_rowconfigure(1, weight=0, minsize=20)
 
 		# canvas
-		canvas = tkinter.Canvas(frame_map)
+		canvas = tk.Canvas(frame_map)
 		canvas.grid(row=0, column=0,padx=4,pady=4, sticky="nsew")
 		self.canvas = canvas
 
@@ -113,7 +170,7 @@ class ALANNGUI(object):
 		canvas.bind_all("<q>", self.canvas_onKeyPress)
 		canvas.bind_all("<e>", self.canvas_onKeyPress)
 
-		self.root_tk = root_tk
+	
 
 
 		
@@ -225,8 +282,7 @@ class ALANNGUI(object):
 		self.tvar_canvas_scanner = tkinter.StringVar(value="...")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_scanner, text_font=("Terminal",9)).grid(row=6, column=1)
 
-
-
+    
 		return frame_map_ctrl
 
 
@@ -410,7 +466,6 @@ class ALANNGUI(object):
 		self._pixelStats[self._pixelStats==0] = 1
 		self._pixelBuffer /= self._pixelStats
 		self._pixelBuffer = self._pixelBuffer.astype(numpy.uint8)
-
 		pic = Image.fromarray(self._pixelBuffer)
 		if self._pixelBuffer.shape[0] > 100:
 			pic.save("canvas.png", format="PNG")
@@ -638,7 +693,7 @@ class ALANNGUI(object):
 		if barsize_nm > 1000: bartxt = "{} um".format(barsize_nm/1000)
 		self.canvas.create_rectangle(cw-20-barsize_px, ch-20-10, cw-20, ch-20, fill="black",outline="white", width=2)
 		self.canvas.create_rectangle(cw-20-2*barsize_px, ch-20-10+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
-		self.canvas.create_text(cw-20-barsize_px/2, ch-10, justify=tkinter.CENTER, text=bartxt)
+		self.canvas.create_text(cw-20-barsize_px/2, ch-10, justify=tk.CENTER, text=bartxt)
 
 
 	# makes the crosshair at the scanner position
@@ -659,6 +714,161 @@ class ALANNGUI(object):
 
 		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
+
+class RastPath(customtkinter.CTkFrame):
+    
+    def __init__(self, parent, controller):
+        customtkinter.CTkFrame.__init__(self,parent)
+
+        self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
+        # contain options to choose from on how to write. This dictionary will contain those frames
+
+        # title
+        title = customtkinter.CTkLabel(self, text="Raster Path Determination", text_font = ("Helvetica",33) )
+        title.grid(row=0,column=1, columnspan=3)
+        description = customtkinter.CTkLabel(self, text = "Load a file (.txt, .mat, .bmap,...)", text_font = ("Helvetica",15))
+        description.grid(row=1, column=1, columnspan=3)
+
+        ############################
+        # frame with the right plot
+        ###########################
+        self.plotr = PlotFrame(self, parent, load=True)
+        self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
+        ##########################################
+
+        #######################################
+        # frame for Raster Properties
+        #######################################
+        self.rast_prop = customtkinter.CTkFrame(self)
+        self.rast_prop.grid(row=4,column=1, sticky='nsew')
+        layer_label = customtkinter.CTkLabel(self.rast_prop, text="Raster Properties", text_font=('Helvetica', 15)).grid(row=0, columnspan=2, pady=5, padx=10, sticky='ew')
+
+        # Entry fields and their labels
+        options = ['Matrix Script','.txt file']
+        self.var = tk.StringVar(self.rast_prop)
+        ExportAsType = ttk.OptionMenu(self.rast_prop, self.var, options[0], *options, command = self.change_rast_prop ).grid(row=1, column=1, pady=5, padx=10, sticky='ew')
+        ExportAsType_label = customtkinter.CTkLabel(self.rast_prop, text="Export as: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=5, padx=10,sticky='ew')
+        self.writeFieldSize = customtkinter.CTkEntry(self.rast_prop)
+        self.writeFieldSize.grid(row=5, column=1,pady=5,  padx=10,sticky='ew')
+        writeFieldSize_label = customtkinter.CTkLabel(self.rast_prop, text="Write Field Size [nm]: ", text_font=('Helvetica', 10)).grid(row=5, column=0, pady=5, padx=10,sticky='ew')
+        Pitch = customtkinter.CTkEntry(self.rast_prop).grid(row=2, column=1,pady=5, padx=10, sticky='ew')
+        Pitch_label = customtkinter.CTkLabel(self.rast_prop, text="Pitch [nm]: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=5, padx=10,sticky='ew')
+        self.WriteSpeed = customtkinter.CTkEntry(self.rast_prop)
+        self.WriteSpeed.grid(row=6, column=1, pady=5, padx=10, sticky='ew')
+        WriteSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Write Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=6, column=0, pady=5, padx=10, sticky='ew')
+        self.IdleSpeed = customtkinter.CTkEntry(self.rast_prop)
+        self.IdleSpeed.grid(row=7, column=1,pady=5, padx=10, sticky='ew')
+        IdleSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Idle Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=7, column=0, pady=5, padx=10,sticky='ew')
+        InvertImg = customtkinter.CTkCheckBox(self.rast_prop,text="Invert Image?").grid(row=8, column=0, columnspan=2,pady=5,padx=10, sticky='n')
+         
+        ConvRastPathButton = customtkinter.CTkButton(self.rast_prop, text='Convert and Export Raster Paths', command = lambda: self.convert(self.plotr) )
+        ConvRastPathButton.grid(row=10, columnspan=2, pady=5 , padx=10)
+
+        #######################################
+
+        # auto-resizing for frames within RastPath (rast_prop and plotframe)
+        rows = [4,5]
+        columns = [2]
+        resizing(self, rows, columns)
+
+    def change_rast_prop(self,variable):
+        variable = self.var.get()
+        if variable=='.txt file':
+            self.writeFieldSize.config(state=tk.DISABLED)
+            self.WriteSpeed.config(state=tk.DISABLED)
+            self.IdleSpeed.config(state=tk.DISABLED)
+        if variable=='Matrix Script':
+            self.writeFieldSize.config(state=tk.NORMAL)
+            self.WriteSpeed.config(state=tk.NORMAL)
+            self.IdleSpeed.config(state=tk.NORMAL)
+
+    def convert(self, plot):
+        pass
+    
+    def open_file(self, child, a, canvaz):
+		# allows for file loading using file explorer window
+        file = filedialog.askopenfile(mode='r')
+        if file:
+            child.content = GDS_file(file)
+            file.close()
+        a.clear()
+        shapes={}
+        for i in range(child.content.num_shapes):
+            x = child.content.shapes[i]['coordinates'][:,0]
+            y = child.content.shapes[i]['coordinates'][:,1]
+            a.plot(x,y, label="Shape "+str(i))
+            a.legend()
+            self.make_shape_frame(i)
+            canvaz.draw()
+    
+    def make_shape_frame(self, n):
+		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
+        self.frame_options_dict[n] = shape_frame(self, n)
+        resizing(self, [5+n],[])
+        self.plotr.grid(rowspan=n+2)
+
+    def clear(self,a, canvas):
+		# gets rid of everything in the plot and deletes the panels made by make_shape_frame
+        a.clear()
+        canvas.draw()
+        for i in self.frame_options_dict:
+            self.frame_options_dict[i].grid_forget()
+            self.frame_options_dict[i].destroy()
+
+        
+class shape_frame(customtkinter.CTkFrame):
+    #######################
+    # Frame which appears to let you select the different write options for the shapes
+    #######################
+	def __init__(self, parent, n):
+		customtkinter.CTkFrame.__init__(self, parent)
+		self.grid(row=5+n,column=1, sticky='nesw')
+		label = customtkinter.CTkLabel(self, text="Shape "+str(n), text_font=('Helvetica', 10)).grid(row=0, column=1, pady=5, padx=10, sticky='n')
+        
+		self.var_scan = tk.StringVar(self)
+		options_scan = ['X-serpentine', 'Y-serpentine', 'Spiral', 'more tbc']
+		WriteType = ttk.OptionMenu(self, self.var_scan, options_scan[0], *options_scan, command = self.change_type ).grid(row=1, column=2, pady=5,padx=10, sticky='e')
+		WriteType_label = customtkinter.CTkLabel(self, text="Write type: ", text_font=('Helvetica', 10)).grid(row=1, column=1, pady=5, padx=10,sticky='w')
+        
+		self.var_fill = tk.StringVar(self)
+		options_fill = ['Only fill', 'Fill and outline']
+		ScanType = ttk.OptionMenu(self, self.var_fill, options_fill[0], *options_fill, command = self.change_type ).grid(row=1, column=4, pady=5,padx=10, sticky='e')
+		ScanType_label = customtkinter.CTkLabel(self, text="Scan type: ", text_font=('Helvetica', 10)).grid(row=1, column=3, pady=5, padx=10, sticky='w')
+
+	def change_type(self, variable):
+		pass
+
+
+class PlotFrame(customtkinter.CTkFrame):
+    ###########################
+    # frame with a matplotlib plot
+    ###########################
+    def __init__(self, parent, controller, load=False):
+        customtkinter.CTkFrame.__init__(self, parent, width=150, height=150) 
+        #make our figure and add blank plot
+        f = Figure(figsize=(2,3), dpi=100)
+        a = f.add_subplot(111)
+        self.content = None
+
+        canvaz = FigureCanvasTkAgg(f, self) 
+        canvaz.draw()
+        canvaz.get_tk_widget().pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10,pady=10)
+
+        toolbar = NavigationToolbar2Tk(canvaz, self)
+        toolbar.update()
+        canvaz._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20,pady=10)
+        #button to clear the canvaz
+        clear = customtkinter.CTkButton(self, text='Clear', command = lambda: parent.clear(a, canvaz) )
+        clear.pack(side=tk.LEFT,padx=5,pady=5)
+        
+        if load:
+            load = customtkinter.CTkButton(self, text='Load', command = lambda: parent.open_file(self, a, canvaz) ) 
+            #makes a button that carries out the open_file function when clicked
+            load.pack(side=tk.LEFT,padx=5,pady=5)
+            # method that allows you to browse
+
+
+
 
 
 
@@ -690,10 +900,10 @@ if __name__ == "__main__":
 	# create the gui
 	gui = ALANNGUI()
 	# assign a scan function
-	gui.ScanFunction = scn.ScanImage
-	gui.MoveTipFunction = scn.MoveTip
-	gui.GetTipFunction = scn.GetTip
+	gui.frames[Home].ScanFunction = scn.ScanImage
+	gui.frames[Home].MoveTipFunction = scn.MoveTip
+	gui.frames[Home].GetTipFunction = scn.GetTip
 
 
 	# run the app
-	gui.root_tk.mainloop()
+	gui.mainloop()
