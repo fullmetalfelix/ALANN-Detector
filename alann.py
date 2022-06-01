@@ -188,7 +188,7 @@ class Home(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0)
 
 		# slider panels
-		frm_pxsize = customtkinter.CTkFrame(master=frm_scan) #, fg_color="#FF0000")
+		#frm_pxsize = customtkinter.CTkFrame(master=frm_scan) #, fg_color="#FF0000")
 		frm_phsize = customtkinter.CTkFrame(master=frm_scan)
 		frm_angle = customtkinter.CTkFrame(master=frm_scan, name="phangle")
 
@@ -196,19 +196,19 @@ class Home(customtkinter.CTkFrame):
 		frm_phsize.grid(row=2, column=0, padx=0, pady=2)
 		frm_angle.grid(row=3, column=0, padx=0, pady=2)
 
-
+		nrow = 1
 
 		# image px size panel
 
-		customtkinter.CTkLabel(master=frm_pxsize,text="pixels:").grid(row=0, column=0)
+		customtkinter.CTkLabel(master=frm_scan,text="pixels:").grid(row=nrow, column=0)
 
-		sld_px = customtkinter.CTkSlider(master=frm_pxsize, from_=6, to=11, number_of_steps=5, command=self.pxsize_change)
-		sld_px.grid(row=0, column=1)
+		sld_px = customtkinter.CTkSlider(master=frm_scan, from_=6, to=11, number_of_steps=5, command=self.pxsize_change)
+		sld_px.grid(row=nrow, column=1)
 		self.sld_px = sld_px
 
 		tvar_pxsize = tk.StringVar(value="...")
 		self.tvar_pxsize = tvar_pxsize
-		lbl_pxsize = customtkinter.CTkLabel(master=frm_pxsize,textvariable=tvar_pxsize).grid(row=0, column=2)
+		lbl_pxsize = customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_pxsize).grid(row=nrow, column=2)
 		
 		sld_px.set(8)
 		
