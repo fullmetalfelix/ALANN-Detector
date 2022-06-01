@@ -92,9 +92,8 @@ class ALANNGUI(customtkinter.CTk):
 			
 			tab = self.tabInfo[tn]
 			cmd = lambda tn=tn: self.tab_show(tn)
-			print(tn,cmd)
 
-			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width)
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
 			tab['button'].configure(fg_color="#4682bd")
 
@@ -142,23 +141,25 @@ class TabHome(customtkinter.CTkFrame):
 		self.grid_columnconfigure(0, weight=0, minsize=200)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
-		# this should be the main control panel
-		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4, name="controls")
+		# this should be the main control bar on the left
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 		self.frame_ctrl = frame_ctrl
 
-
-
-		customtkinter.CTkLabel(master=frame_ctrl,text="Controls").grid(row=0, column=0)
+		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping").grid(row=0, column=0)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
-		frm_scan.grid(row=1, column=0, pady=4)
+		frm_scan.grid(row=1, column=0, pady=4, padx=4)
 		
-		nrow = 1
+
+		# canvas navigation panel
+		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
+		frame_map_ctrl.grid(row=2, column=0)
+
 
 		# and this is the map panel
-		frame_map = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4)
-		frame_map.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
+		frame_map = customtkinter.CTkFrame(master=self, corner_radius=4)
+		frame_map.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
 
 		frame_map.grid_columnconfigure(0, weight=2)
 		#frame_map.grid_columnconfigure(1, weight=0, minsize=20)
@@ -170,9 +171,6 @@ class TabHome(customtkinter.CTkFrame):
 		canvas.grid(row=0, column=0,padx=4,pady=4, sticky="nsew")
 		self.canvas = canvas
 
-		### canvas navigation
-		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
-		frame_map_ctrl.grid(row=nrow+1, column=0)
 		
 		# center of the canvas in physical space
 		self.canvas_0 = numpy.asarray([0,0], dtype=numpy.float64)
@@ -209,7 +207,7 @@ class TabHome(customtkinter.CTkFrame):
 
 	def _init_scan_panel(self, mainframe):
 
-		frm_scan = customtkinter.CTkFrame(master=mainframe)
+		frm_scan = customtkinter.CTkFrame(master=mainframe,corner_radius=4)
 
 		# title label
 		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0, columnspan=3)
@@ -276,20 +274,24 @@ class TabHome(customtkinter.CTkFrame):
 
 		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
 		
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
 
-		customtkinter.CTkButton(master=frame_map_ctrl, text="↑", command=self.bt_nav_up).grid(row=1, column=1,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="←", command=self.bt_nav_left).grid(row=2, column=0,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="→", command=self.bt_nav_right).grid(row=2, column=2,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="↓", command=self.bt_nav_down).grid(row=3, column=1,padx=4,pady=4)
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=3)
 
-		frame_map_zoom = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
-		frame_map_zoom.grid(row=2, column=1)
-		frame_map_zoom.grid_columnconfigure(0, weight=0, minsize=20)
-		frame_map_zoom.grid_columnconfigure(1, weight=0, minsize=20)
 
-		customtkinter.CTkButton(master=frame_map_zoom, text="+", width=40, command=self.bt_nav_zoomIN).grid(row=0,column=0, padx=4)
-		customtkinter.CTkButton(master=frame_map_zoom, text="-", width=40, command=self.bt_nav_zoomOUT).grid(row=0,column=1, padx=4)
+		customtkinter.CTkButton(master=frm, text="↑", command=self.bt_nav_up, width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=self.bt_nav_left, width=48).grid(row=1, column=0,padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=self.bt_nav_right, width=48).grid(row=1, column=2,padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=self.bt_nav_down, width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		#frame_map_zoom = customtkinter.CTkFrame(master=frm, corner_radius=4)
+		#frame_map_zoom.grid(row=1, column=1)
+		#frame_map_zoom.grid_columnconfigure(0, weight=0, minsize=20)
+		#frame_map_zoom.grid_columnconfigure(1, weight=0, minsize=20)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=self.bt_nav_zoomIN).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=self.bt_nav_zoomOUT).grid(row=2,column=2, padx=4,pady=4)
 		
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
