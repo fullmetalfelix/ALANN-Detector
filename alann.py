@@ -149,7 +149,7 @@ class TabHome(customtkinter.CTkFrame):
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 		self.frame_ctrl = frame_ctrl
 
-		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping").grid(row=0, column=0)
+		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
 		frm_scan.grid(row=1, column=0, pady=4, padx=4)
@@ -717,76 +717,125 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
 		# contain options to choose from on how to write. This dictionary will contain those frames
 
-		# title
-		title = customtkinter.CTkLabel(self, text="Raster Path Determination", text_font = ("Helvetica",33) )
-		title.grid(row=0,column=1, columnspan=3)
-		description = customtkinter.CTkLabel(self, text = "Load a file (.txt, .mat, .bmap,...)", text_font = ("Helvetica",15))
-		description.grid(row=1, column=1, columnspan=3)
+		self.grid_rowconfigure(0, weight=1)
+		self.grid_columnconfigure(0, weight=0, minsize=240)
+		self.grid_columnconfigure(1, weight=2, minsize=400)
 
-		############################
+
+		###########################
 		# frame with the right plot
 		###########################
-		self.plotr = PlotFrame(self, parent, load=True)
-		self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
+		#self.plotr = PlotFrame(self, parent, load=True)
+		#self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
 		##########################################
 
 		#######################################
-		# frame for Raster Properties
+		# frame for path controls
 		#######################################
-		self.rast_prop = customtkinter.CTkFrame(self)
-		self.rast_prop.grid(row=4,column=1, sticky='nsew')
-		layer_label = customtkinter.CTkLabel(self.rast_prop, text="Raster Properties", text_font=('Helvetica', 15)).grid(row=0, columnspan=2, pady=5, padx=10, sticky='ew')
+		panel = customtkinter.CTkFrame(self)
+		panel.grid(row=0,column=0, padx=8, pady=8, sticky='nsew')
+		self.rast_prop = panel
+		self.mainpanel = panel
 
-		# Entry fields and their labels
-		options = ['Matrix Script','.txt file']
-		self.var_type = tk.StringVar(self.rast_prop)
-		ExportAsType = ttk.OptionMenu(self.rast_prop, self.var_type, options[0], *options, command = self.change_rast_prop ).grid(row=1, column=1, pady=5, padx=10, sticky='ew')
-		ExportAsType_label = customtkinter.CTkLabel(self.rast_prop, text="Export as: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=5, padx=10,sticky='ew')
+		### title
+		customtkinter.CTkLabel(panel, text="LithoPath Controls", text_font=('Roboto', 14)).grid(row=0, columnspan=3, pady=4, padx=10, sticky='n')
 
-		self.write_field = tk.StringVar(self.rast_prop)
-		self.writeFieldSize = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_field)
-		self.writeFieldSize.grid(row=5, column=1,pady=5,  padx=10,sticky='ew')
-		writeFieldSize_label = customtkinter.CTkLabel(self.rast_prop, text="Write Field Size [nm]: ", text_font=('Helvetica', 10)).grid(row=5, column=0, pady=5, padx=10,sticky='ew')
+		### load file button
+		self.gdsLoaded = False
+		customtkinter.CTkButton(panel, text='Load file', command=None).grid(row=1,column=1)
+		# lambda: open_file(self, self.subplot, self.canvaz))
+		#makes a button that carries out the open_file function when clicked
+		#load.pack(side=tk.LEFT,padx=5,pady=5)
+		# method that allows you to browse
 
-		self.pitch = tk.StringVar(self.rast_prop)
-		Pitch = customtkinter.CTkEntry(self.rast_prop, textvariable= self.pitch).grid(row=2, column=1,pady=5, padx=10, sticky='ew')
-		Pitch_label = customtkinter.CTkLabel(self.rast_prop, text="Pitch [nm]: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=5, padx=10,sticky='ew')
+		
+		## control panel
+		self.controlpanel = self._init_controlPanel(panel)
+		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
 
-		self.write_speed = tk.StringVar(self.rast_prop)
-		self.WriteSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_speed)
-		self.WriteSpeed.grid(row=6, column=1, pady=5, padx=10, sticky='ew')
-		WriteSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Write Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=6, column=0, pady=5, padx=10, sticky='ew')
 
-		self.idle_speed = tk.StringVar(self.rast_prop)
-		self.IdleSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.idle_speed)
-		self.IdleSpeed.grid(row=7, column=1,pady=5, padx=10, sticky='ew')
-		IdleSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Idle Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=7, column=0, pady=5, padx=10,sticky='ew')
-
-		InvertImg = customtkinter.CTkCheckBox(self.rast_prop,text="Invert Image?").grid(row=8, column=0, columnspan=2,pady=5,padx=10, sticky='n')
-
-		ConvRastPathButton = customtkinter.CTkButton(self.rast_prop, text='Convert and Export Raster Paths', command = lambda: self.convert() )
-		ConvRastPathButton.grid(row=10, columnspan=2, pady=5 , padx=10)
-
-		#######################################
 
 		# auto-resizing for frames within TabLithoPath (rast_prop and plotframe)
-		rows = [4,5]
-		columns = [2]
-		resizing(self, rows, columns)
+		#rows = [4,5]
+		#columns = [2]
+		#resizing(self, rows, columns)
 
-	def change_rast_prop(self,variable):
-		variable = self.var_type.get()
+
+	def _init_controlPanel(self, master):
+
+		cp = customtkinter.CTkFrame(master)
+		
+
+		customtkinter.CTkLabel(cp, text="Raster settings").grid(row=0, column=0, columnspan=2, pady=4, sticky='n')
+
+
+		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
+		self.tvar_writefield = tk.StringVar(cp)
+		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.tvar_writefield)
+		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
+		self.tvar_pitch = tk.StringVar(cp)
+		self.control_pitch = customtkinter.CTkEntry(cp, textvariable= self.tvar_pitch)
+		self.control_pitch.grid(row=2, column=1, padx=4, sticky='ew')
+
+		customtkinter.CTkLabel(cp, text="Write Speed [nm/s]: ").grid(row=3, column=0, pady=4, sticky='w')		
+		self.tvar_writespeed = tk.StringVar(cp)
+		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_writespeed)
+		self.control_writespeed.grid(row=3, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
+		self.tvar_idlespeed = tk.StringVar(cp)
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_idlespeed)
+		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
+
+
+		customtkinter.CTkLabel(cp, text="Export paths").grid(row=6, column=0, columnspan=2, pady=8, sticky='ew')
+
+		# Entry fields and their labels
+		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
+
+		options = ['Matrix Script','.txt file']
+		self.tvar_exptype = tk.StringVar(cp)
+		self.control_exptype = ttk.OptionMenu(cp, self.tvar_exptype, options[0], *options, command=self.exptype_onchange)
+		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
+
+		customtkinter.CTkButton(cp, text='export', command=lambda:self.convert()).grid(row=8, columnspan=2, pady=4, sticky="n")
+
+		return cp
+
+
+	def exptype_onchange(self, variable):
+
+		"""
+		Export type selector onchange event handler.
+		This is called automatically by the GUI.
+
+		:param variable: selected format option
+		:type variable: str
+		
+		"""
+
+
 		if variable=='.txt file':
-			self.writeFieldSize.config(state=tk.DISABLED)
-			self.WriteSpeed.config(state=tk.DISABLED)
-			self.IdleSpeed.config(state=tk.DISABLED)
-		if variable=='Matrix Script':
-			self.writeFieldSize.config(state=tk.NORMAL)
-			self.WriteSpeed.config(state=tk.NORMAL)
-			self.IdleSpeed.config(state=tk.NORMAL)
+			self.control_writefield.config(state=tk.DISABLED)
+			self.control_writespeed.config(state=tk.DISABLED)
+			self.control_idlespeed.config(state=tk.DISABLED)
+		
+		elif variable=='Matrix Script':
+			self.control_writefield.config(state=tk.NORMAL)
+			self.control_writespeed.config(state=tk.NORMAL)
+			self.control_idlespeed.config(state=tk.NORMAL)
+
+		else:
+			raise ValueError("Export type not implemented")
+
 
 	def convert(self):
-	# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
+		
+		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
 		# clear plot
 		self.plotr.subplot.clear()
 		# define variables
