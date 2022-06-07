@@ -716,6 +716,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.alanngui = controller
 		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
 		# contain options to choose from on how to write. This dictionary will contain those frames
+		self.gds = None
 
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_columnconfigure(0, weight=0, minsize=240)
@@ -742,7 +743,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		### load file button
 		self.gdsLoaded = False
-		customtkinter.CTkButton(panel, text='Load file', command=None).grid(row=1,column=1)
+		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
 		# lambda: open_file(self, self.subplot, self.canvaz))
 		#makes a button that carries out the open_file function when clicked
 		#load.pack(side=tk.LEFT,padx=5,pady=5)
@@ -802,9 +803,11 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.control_exptype = ttk.OptionMenu(cp, self.tvar_exptype, options[0], *options, command=self.exptype_onchange)
 		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
 
-		customtkinter.CTkButton(cp, text='export', command=lambda:self.convert()).grid(row=8, columnspan=2, pady=4, sticky="n")
+		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
 
 		return cp
+
+
 
 
 	def exptype_onchange(self, variable):
@@ -833,8 +836,8 @@ class TabLithoPath(customtkinter.CTkFrame):
 			raise ValueError("Export type not implemented")
 
 
-	def convert(self):
-		
+	def export_onclick(self):
+
 		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
 		# clear plot
 		self.plotr.subplot.clear()
@@ -854,8 +857,20 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.plotr.update_plot(self.shapes)
 		self.plotr.canvaz.draw()
 
-	def open_file(self, child, subplot, canvaz):
 
+	def openfile_onclick(self):
+
+
+		file = filedialog.askopenfile(mode='r')
+		if file:
+			self.gds = GDSConverter.GDS(file)
+			file.close()
+
+
+		# hopefully the file was opened and parsed correctly!
+		
+
+		'''
 		# allows for file loading using file explorer window
 		# child is the frame the plot is in that contains the dictionary with the shapes
 		file = filedialog.askopenfile(mode='r')
@@ -868,10 +883,11 @@ class TabLithoPath(customtkinter.CTkFrame):
 		for i in child.content.shapes:
 			x = child.content.shapes[i]['coordinates'][:,0]
 			y = child.content.shapes[i]['coordinates'][:,1]	
-			subplot.plot(x,y, label="Shape "+str(i))
+			subplot.plot(x,y, label="Shape {}".format(i))
 			subplot.legend()
 			self.make_shape_frame(i)
 			canvaz.draw()
+		'''
 
 	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
