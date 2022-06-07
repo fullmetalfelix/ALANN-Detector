@@ -16,7 +16,8 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib import pyplot as plt
-import gds_conv # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
+
+import GDSConverter # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
 
 
 
@@ -87,6 +88,7 @@ class ALANNGUI(customtkinter.CTk):
 			}
 		}
 
+		# create the tabs and tab selector buttons
 		col = 0
 		for tn in self.tabInfo.keys():
 			
@@ -135,6 +137,7 @@ class TabHome(customtkinter.CTkFrame):
 		
 		customtkinter.CTkFrame.__init__(self, parent)
 		
+		self.alanngui = controller
 		self._scans = []
 	
 		self.grid_rowconfigure(0, weight=1)
@@ -167,7 +170,7 @@ class TabHome(customtkinter.CTkFrame):
 		#frame_map.grid_rowconfigure(1, weight=0, minsize=20)
 
 		# canvas
-		canvas = tk.Canvas(frame_map)
+		canvas = tk.Canvas(frame_map, bg="white")
 		canvas.grid(row=0, column=0,padx=4,pady=4, sticky="nsew")
 		self.canvas = canvas
 
@@ -649,46 +652,7 @@ class TabHome(customtkinter.CTkFrame):
 		pic = pic.resize(newsize, resample=method)
 		tkpic = ImageTk.PhotoImage(image=pic)
 
-		'''
-		pic = Image.fromarray(data)
-		pic = pic.resize(newsize, resample=method)
-		pic.convert('RGBA')
-		tkpic = ImageTk.PhotoImage(image=pic)
-		pic.save("canvas.png", format="PNG")
-
-		pic2 = pic.rotate(30, expand=True, center=(0,1))
-
-		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
-		mask += 255
-		mask = Image.fromarray(mask)
-		mask = mask.rotate(30, expand=True)
-		mask.save("canvas.mask.png", format="PNG")
-
-		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
-		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
-		bgim = Image.fromarray(bgim, mode="RGBA")
-		bgim = bgim.rotate(30, expand=True)
-		bgim.save("canvas.bgim.png", format="PNG")
-
-		#rotm = Image.composite(pic2, fff, mask)
-		#fff = Image.new('RGBA', pic2.size, (255,)*4)
-		#pic2 = Image.composite(pic2, fff, pic2)
-		pic2.save("canvas.rot.png", format="PNG")
-		'''
-		'''# original image
-		img = Image.open('test.png')
-		# converted to have an alpha layer
-		im2 = img.convert('RGBA')
-		# rotated image
-		rot = im2.rotate(22.2, expand=1)
-		# a white image same size as rotated image
-		fff = Image.new('RGBA', rot.size, (255,)*4)
-		# create a composite image using the alpha layer of rot as a mask
-		out = Image.composite(rot, fff, rot)
-		# save your work (converting back to mode='1' or whatever..)
-		out.convert(img.mode).save('test2.bmp')
-		'''
-
+	
 
 		self._crops.append(tkpic)
 
@@ -746,8 +710,10 @@ class TabHome(customtkinter.CTkFrame):
 class TabLithoPath(customtkinter.CTkFrame):
 
 	def __init__(self, parent, controller):
-		customtkinter.CTkFrame.__init__(self,parent)
 
+		customtkinter.CTkFrame.__init__(self, parent)
+
+		self.alanngui = controller
 		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
 		# contain options to choose from on how to write. This dictionary will contain those frames
 
@@ -828,25 +794,28 @@ class TabLithoPath(customtkinter.CTkFrame):
 		pitch = int(self.pitch.get())
 		#write_speed = int(self.write_speed.get())
 		#idle_speed = int(self.idle_speed.get())
-		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the gds_conv.py file)
+		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the GDSConverter.py file)
 		# get vector scan coordinates for each shape
 		for shape in self.plotr.content.shapes:
 			write_type = self.frame_options_dict[shape].var_scan.get()
 			scan_type = self.frame_options_dict[shape].var_fill.get() 
-			self.shapes[shape] = gds_conv.shape(self.plotr.content.shapes[shape]['coordinates'])
+			self.shapes[shape] = GDSConverter.Shape(self.plotr.content.shapes[shape]['coordinates'])
 			self.shapes[shape].vector_scan(write_type, scan_type, pitch)
 		# plot the new cooords
 		self.plotr.update_plot(self.shapes)
 		self.plotr.canvaz.draw()
 
 	def open_file(self, child, subplot, canvaz):
+
 		# allows for file loading using file explorer window
 		# child is the frame the plot is in that contains the dictionary with the shapes
 		file = filedialog.askopenfile(mode='r')
 		if file:
-			child.content = gds_conv.GDS_file(file)
+			child.content = GDSConverter.GDS(file)
 			file.close()
+
 		subplot.clear()
+
 		for i in child.content.shapes:
 			x = child.content.shapes[i]['coordinates'][:,0]
 			y = child.content.shapes[i]['coordinates'][:,1]	
