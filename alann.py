@@ -228,7 +228,28 @@ class CanvasSPM(object):
 		canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
 		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
 		
+class CanvasCrossHair(object):
 
+	def __init__(self, name, position, **kwargs):
+
+		self.name = name
+
+		# in physical space
+		self.position = position
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
+		tip = self.position
+		ctip = canvas.physical_to_canvas(tip)
+		
+		canvas.create_line(ctip[0], ctip[1]-8, ctip[0], ctip[1]-2, **self.options)
+		canvas.create_line(ctip[0], ctip[1]+8, ctip[0], ctip[1]+2, **self.options)
+
+		canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], **self.options)
+		canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], **self.options)
 
 
 class PhysicalCanvas(tk.Canvas):
@@ -264,13 +285,20 @@ class PhysicalCanvas(tk.Canvas):
 		self.hasFocus = False
 
 
-		self.variables = {}
-		self.variables['resolution'] = {"object": tk.StringVar(value="..."), "value": None}
-		self.variables['mousepos'] = {"object": tk.StringVar(value="..."), "value": None}
+		self.variables = {
+
+			'resolution': 	{"object": tk.StringVar(value="..."), "value": None},
+			'mousepos': 	{"object": tk.StringVar(value="..."), "value": None}
+		}
+
+
+		self.callbacks = {
+			'click': []
+		}
 
 
 		#self.bind("<FocusOut>", self.lose_focus)
-		self.bind("<1>", lambda e: self.give_focus())
+		self.bind("<1>", self._onclick)
 
 		self.bind("<Configure>", self._resize)
 		self.bind('<Motion>', self._onMouseMove)
@@ -286,6 +314,16 @@ class PhysicalCanvas(tk.Canvas):
 
 
 	### FOCUS EVENTS ### ##############################################
+
+	def _onclick(self, event):
+
+		self.give_focus()
+		#print("canvas click")
+
+		for cb in self.callbacks['click']:
+			cb(event)
+
+		self._onMouseMove(event)
 
 	def give_focus(self):
 		#print(self,"get focus")
@@ -310,7 +348,7 @@ class PhysicalCanvas(tk.Canvas):
 		magn1, units1, dummy = self.physical_to_approximate(p[1],3)
 
 		self.variables['mousepos']['object'].set(
-			"{:+.3f} {}, {:+.3f} {}".format(magn0,units0, magn1,units1)
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(magn0,units0, magn1,units1)
 		)
 
 
@@ -334,7 +372,6 @@ class PhysicalCanvas(tk.Canvas):
 				self.resolution /= 2
 				self._resize(None)
 
-		#self._render()
 
 	def move(self, direction):
 
@@ -446,7 +483,7 @@ class PhysicalCanvas(tk.Canvas):
 		else:
 			self.variables['resolution']['object'].set("{}⁻¹ px/nm".format(1.0/self.resolution))
 
-		self._render()
+		self.render()
 
 
 
@@ -456,28 +493,31 @@ class PhysicalCanvas(tk.Canvas):
 		self._stackPoints = []
 		self._stackLines = []
 		self._stackSPM = []
-		self._render()
+		self.render()
 
-	def AddObject(self, cobj):
+	def AddObject(self, cobj, noRender=False):
 
 		if isinstance(cobj, CanvasPoint):
 			self._stackPoints.append(cobj)
-		elif isinstance(cobj, CanvasLine):
+		elif isinstance(cobj, CanvasLine) or isinstance(cobj, CanvasCrossHair):
 			self._stackLines.append(cobj)
 		elif isinstance(cobj, CanvasSPM):
 			self._stackSPM.append(cobj)
 		else:
 			raise TypeError("Invalid canvas object")
 
-		self._render()
 
-	def RemoveObject(self, name):
+		if not noRender:
+			self.render()
+
+	def RemoveObject(self, name, noRender=False):
 
 		self._stackPoints = [o for o in self._stackPoints if o.name != name]
 		self._stackLines = [o for o in self._stackLines if o.name != name]
 		self._stackSPM = [o for o in self._stackSPM if o.name != name]
 
-		self._render()
+		if not noRender:
+			self.render()
 
 
 
@@ -511,7 +551,7 @@ class PhysicalCanvas(tk.Canvas):
 
 
 
-	def _render(self):
+	def render(self):
 
 		self.delete("all")
 
@@ -645,6 +685,10 @@ class TabHome(customtkinter.CTkFrame):
 		self.alanngui = controller
 		self._scans = []
 	
+		self.variables = {
+			'tippos': {'object': tk.StringVar(value="..."), 'value': numpy.asarray([0,0], dtype=numpy.float64)},
+		}
+
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_columnconfigure(0, weight=0, minsize=200)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
@@ -677,16 +721,24 @@ class TabHome(customtkinter.CTkFrame):
 		frm_scan.grid(row=1, column=0, pady=4, padx=4)
 		
 
+
+
 		# canvas navigation panel
 		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
 		frame_map_ctrl.grid(row=2, column=0, padx=4, pady=4, sticky="new")
 
-
-
+		canvas.callbacks['click'].append(self.MoveTip)
 		#canvas.bind("<Button-1>", self.canvas_onclick)
 
 
 		# start with tip in 0,0
+		# this is a crosshair object
+		self.crosshair = CanvasCrossHair("tippos", self.variables['tippos']['value'], fill='red')
+		canvas.AddObject(self.crosshair, noRender=True)
+
+		self._onTipPosChange([0,0])
+
+
 
 		
 		
@@ -768,14 +820,15 @@ class TabHome(customtkinter.CTkFrame):
 		frm.grid(row=1,columnspan=2, sticky="n")
 
 
-		customtkinter.CTkButton(master=frm, text="↑", command=self.bt_nav_up, width=48).grid(row=0, column=1, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="←", command=self.bt_nav_left, width=48).grid(row=1, column=0,padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="→", command=self.bt_nav_right, width=48).grid(row=1, column=2,padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="↓", command=self.bt_nav_down, width=48).grid(row=2, column=1, padx=4,pady=4)
+		cv = self.canvas
 
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
 
-		customtkinter.CTkButton(master=frm, text="+", width=32, command=self.bt_nav_zoomIN).grid(row=2,column=0, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="-", width=32, command=self.bt_nav_zoomOUT).grid(row=2,column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
 		
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
@@ -785,8 +838,7 @@ class TabHome(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1)
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
-		self.tvar_canvas_scanner = tk.StringVar(value="...")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_scanner, text_font=("Terminal",9)).grid(row=6, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1)
 
     
 		return frame_map_ctrl
@@ -795,6 +847,7 @@ class TabHome(customtkinter.CTkFrame):
 
 
 	def button_function(self):
+
 		print("button pressed")
 
 	def pxsize_change(self,value):
@@ -814,7 +867,7 @@ class TabHome(customtkinter.CTkFrame):
 
 	def phang_change(self,value):
 
-		self.tvar_phang.set("{} deg".format(value))
+		self.tvar_phang.set("{}°".format(value))
 
 
 	def scan_click(self):
@@ -829,51 +882,18 @@ class TabHome(customtkinter.CTkFrame):
 		angle = self.sld_angle.get()
 
 		scan = self.ScanFunction(npx, size, angle)
-		self.canvas.AddObject(CanvasSPM("spm", scan))
-		#self._scans.append(scan)
+		self.canvas.AddObject(CanvasSPM("spm", scan), noRender=True)
 		print("scan completed")
 
 		#plt.matshow(scan.data)
 		#plt.show()
 
-
-		#self.canvas_redraw()
-
-
-	def bt_nav_up(self): self.canvas_move([0,-1])
-	def bt_nav_down(self): self.canvas_move([0,1])
-	def bt_nav_left(self): self.canvas_move([-1,0])
-	def bt_nav_right(self): self.canvas_move([1,0])
-	def canvas_move(self, direction):
-
-		step = 0.1 * self.canvas_size / self.canvas_res
-		self.canvas_0 += numpy.asarray(direction) * self._axisflipper * step
-		self.canvas_redraw()
-	def bt_nav_zoomIN(self):
-
-		self.canvas_res *= 1.5
-		self.canvas_redraw()
-	def bt_nav_zoomOUT(self):
-
-		self.canvas_res /= 1.5
-		self.canvas_redraw()
+		# update the tip position
+		tip = self.GetTipFunction()
+		self._onTipPosChange(tip)
 
 
-	def canvas_onKeyPress(self, event):
-		#print("pressed", event.char)
-		if event.char == "w": 	self.bt_nav_up()
-		elif event.char == "s":	self.bt_nav_down()
-		elif event.char == "a":	self.bt_nav_left()
-		elif event.char == "d":	self.bt_nav_right()
-		elif event.char == "q":	self.bt_nav_zoomIN()
-		elif event.char == "e":	self.bt_nav_zoomOUT()
 
-
-	def resize(self, event):
-
-		self.canvas_redraw()
-		
-	
 	def _canvas_compute_corners(self):
 
 		self.canvas_size[0] = self.canvas.winfo_width()
@@ -890,33 +910,30 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas_corners[3] = self.canvas_to_physical(p)
 
 
-	def canvas_onclick(self,event):
+	def MoveTip(self, event):
 		
-		p = self.canvas_to_physical(numpy.asarray([event.x, event.y]))
-
-		print("canvas click at", event.x, event.y, "--",p)
+		p = self.canvas.canvas_to_physical(numpy.asarray([event.x, event.y]))
+		#print("canvas click at", event.x, event.y, "--",p)
 
 		self.MoveTipFunction(p)
-		self.canvas_redraw()
+
+		# when the movement is done, show the position
+		self._onTipPosChange(p)
 
 
-	## converts coordinates from physical space into canvas pixel space
-	def physical_to_canvas(self, point):
+	def _onTipPosChange(self, newpos):
 
-		v = self.canvas_size * 0.5
-		v += self._axisflipper * (point - self.canvas_0) * self.canvas_res
-		return v
+		p = newpos
+		self.variables["tippos"]["value"][0] = p[0]
+		self.variables["tippos"]["value"][1] = p[1]
+		
+		m0, u0, n0 = self.canvas.physical_to_approximate(p[0], 3)
+		m1, u1, n1 = self.canvas.physical_to_approximate(p[1], 3)
+		self.variables['tippos']['object'].set(
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(m0,u0, m1,u1)
+		)
 
-	def canvas_to_physical(self, pxpoint):
-
-		v = self._axisflipper * pxpoint
-		v-= self._axisflipper * self.canvas_size*0.5
-		v/= self.canvas_res
-		v+= self.canvas_0
-
-		return v
-
-
+		self.canvas.render()
 
 
 
@@ -1120,24 +1137,6 @@ class TabHome(customtkinter.CTkFrame):
 		return
 
 
-	def canvas_redraw_scalebar(self):
-
-		cw = self.canvas.winfo_width()
-		ch = self.canvas.winfo_height()
-
-		barheight = 20
-
-		# draw the scale bar
-		barsize_px = 0.1 * cw # bar size in pixels - how many nm is that?
-		barsize_nm = barsize_px / self.canvas_res # size in nm -> round it
-		barsize_nm = numpy.round(barsize_nm) # then get the fixed pixel count
-		barsize_px = numpy.round(barsize_nm * self.canvas_res)
-		bartxt = "{} nm".format(barsize_nm)
-		if barsize_nm > 1000: bartxt = "{} μm".format(barsize_nm/1000)
-		self.canvas.create_rectangle(cw-20-barsize_px, ch-20-barheight, cw-20, ch-20, fill="black",outline="white", width=2)
-		self.canvas.create_rectangle(cw-20-2*barsize_px, ch-20-barheight+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
-		self.canvas.create_text(cw-20-barsize_px/2, ch-20-barheight/2, justify=tk.CENTER, text=bartxt, fill="white")
-
 
 	# makes the crosshair at the scanner position
 	def canvas_redraw_tip(self):
@@ -1157,6 +1156,12 @@ class TabHome(customtkinter.CTkFrame):
 
 		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
+
+
+
+
+
+
 
 
 
