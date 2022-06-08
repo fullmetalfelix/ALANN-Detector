@@ -255,6 +255,8 @@ class CanvasCrossHair(object):
 class PhysicalCanvas(tk.Canvas):
 
 
+
+
 	def __init__(self, parent, **kwargs):
 
 		tk.Canvas.__init__(self, parent, **kwargs)
