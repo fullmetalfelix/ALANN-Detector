@@ -153,7 +153,7 @@ class CanvasSPM(object):
 		# convert height values to color
 		# this can make the topography contrast go away quite a bit
 		data = spm.data - canvas.SPM_min # also applies the shift
-		data /= canvas.SPM_max
+		data /= canvas.SPM_max/1.5
 		data *= 255
 
 		# final conversion to bytes and flip vertically
@@ -692,7 +692,7 @@ class TabHome(customtkinter.CTkFrame):
 		}
 
 		self.grid_rowconfigure(0, weight=1)
-		self.grid_columnconfigure(0, weight=0, minsize=200)
+		self.grid_columnconfigure(0, weight=0, minsize=400)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
 
@@ -711,16 +711,16 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
-
 		# this should be the main control bar on the left
 		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+		#frame_ctrl.grid_propagate(False)
 		self.frame_ctrl = frame_ctrl
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
-		frm_scan.grid(row=1, column=0, pady=4, padx=4)
+		frm_scan.grid(row=1, column=0, pady=4, padx=4,sticky="new")
 		
 
 
@@ -809,14 +809,14 @@ class TabHome(customtkinter.CTkFrame):
 
 		return frm_scan
 
-
 	def _init_nav_panel(self, mainframe):
 
 		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
-		frame_map_ctrl.grid_columnconfigure(0, weight=1, minsize=200)
-		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
 
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=2)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
 
 		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
 		frm.grid(row=1,columnspan=2, sticky="n")
@@ -833,14 +833,14 @@ class TabHome(customtkinter.CTkFrame):
 		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
 		
 
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
 
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0)
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1, sticky="e")
 
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1, sticky="e")
 
     
 		return frame_map_ctrl
@@ -896,22 +896,6 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
-	def _canvas_compute_corners(self):
-
-		self.canvas_size[0] = self.canvas.winfo_width()
-		self.canvas_size[1] = self.canvas.winfo_height()
-
-		# compute the canvas corner positions in physical space
-		p = numpy.zeros(2)
-		self.canvas_corners[0] = self.canvas_to_physical(p)
-		p[0] = self.canvas_size[0]
-		self.canvas_corners[1] = self.canvas_to_physical(p)
-		p[1] = self.canvas_size[1]
-		self.canvas_corners[2] = self.canvas_to_physical(p)
-		p[0] = 0
-		self.canvas_corners[3] = self.canvas_to_physical(p)
-
-
 	def MoveTip(self, event):
 		
 		p = self.canvas.canvas_to_physical(numpy.asarray([event.x, event.y]))
@@ -938,7 +922,7 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.render()
 
 
-
+	'''
 	def canvas_redraw(self):
 
 
@@ -1139,7 +1123,6 @@ class TabHome(customtkinter.CTkFrame):
 		return
 
 
-
 	# makes the crosshair at the scanner position
 	def canvas_redraw_tip(self):
 
@@ -1160,8 +1143,7 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
 
 
-
-
+	'''
 
 
 
@@ -1190,6 +1172,19 @@ class TabLithoPath(customtkinter.CTkFrame):
 		#self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
 		##########################################
 
+
+		###########################
+		# CANVAS FRAME
+		###########################
+		canvas = PhysicalCanvas(self, bg="white")
+		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
+		self.canvas = canvas
+
+		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
+		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
+
+
+
 		#######################################
 		# frame for path controls
 		#######################################
@@ -1209,19 +1204,15 @@ class TabLithoPath(customtkinter.CTkFrame):
 		#load.pack(side=tk.LEFT,padx=5,pady=5)
 		# method that allows you to browse
 
+
+
 		
 		### control panel
 		self.controlpanel = self._init_controlPanel(panel)
 		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
 
 
-		### canvas
-		canvas = PhysicalCanvas(self, bg="white")
-		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
-		self.canvas = canvas
 
-		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
-		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
 
 
 		# auto-resizing for frames within TabLithoPath (rast_prop and plotframe)
