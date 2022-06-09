@@ -210,17 +210,19 @@ class Shape:
 
 		# takes in coordinates of a shape and returns the vector coordinates needed to make a y serpentine across it
 		edge_top, edge_bottom = self.y_split_up(coords) # define the top and bottom edge
-		#if scan_type == 'Fill and outline':
-		#	edge_top = edge_top-pitch
-		#	edge_bottom = edge_bottom+pitch
+		
+		if scan_type == 'Fill and outline':
+			edge_top[:,1] = edge_top[:,1] - pitch
+			edge_bottom[:,1] = edge_bottom[:,1] + pitch
 
 		top_points = self.y_points_on_edge(edge_top, pitch) # find points along top spaced by pitch
 		bottom_points = self.y_points_on_edge(edge_bottom, pitch) # points along bottom
 
-	#	if scan_type == 'Fill and outline':
-	#		top_points = top_points[1:-1,:]
-	#		bottom_points = bottom_points[1:-1,:]
-
+		if scan_type == 'Fill and outline':
+			top_points = top_points[1:-1,:]
+			bottom_points = bottom_points[1:-1,:]
+	
+		
 		# to get the final path we need toalternate between the top and bottom points.
 		# we define an array of right shape and fill it in with the right points
 		full_points = np.zeros((top_points.shape[0]+bottom_points.shape[0],2))
@@ -284,11 +286,11 @@ class Shape:
 		# define the top edge
 		if te_index<ts_index:
 			# we reverse it if ts is at the end as that's the convention we work with
-			top_edge = coords[te_index:ts_index+1,:][::-1,:]
+			top_edge = coords[te_index:ts_index+1,:][::-1,:].copy()
 			# bottom edge is whatever is left over
 			bottom_edge = np.vstack((coords[:te_index+1,:], coords[ts_index:,:]))[::-1,:]
 		if ts_index<te_index:
-			top_edge = coords[ts_index:te_index+1,:]
+			top_edge = coords[ts_index:te_index+1,:].copy()
 			# bottom edge is whatever is left over
 			bottom_edge = np.vstack((coords[:ts_index+1,:], coords[te_index:,:]))[::-1,:]
 		
