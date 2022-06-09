@@ -34,6 +34,9 @@ class GDS:
 		self.shapes = {}
 		self._to_shapes()
 
+		print("GDS file parsed")
+	
+
 	def _to_shapes(self):
 
 		"""

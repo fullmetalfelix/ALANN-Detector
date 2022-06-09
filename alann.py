@@ -295,7 +295,8 @@ class PhysicalCanvas(tk.Canvas):
 
 
 		self.callbacks = {
-			'click': []
+			'click': [],
+
 		}
 
 
@@ -385,6 +386,24 @@ class PhysicalCanvas(tk.Canvas):
 	###################################################################
 
 	### POSITIONING ### ###############################################
+
+	## set the physical space center of the canvas and the resolution (if given)
+	def setSpace(self, center=None, resolution=None):
+
+		upd = False
+
+		if center is not None:
+			self.center = numpy.asarray(center, dtype=numpy.float64)
+			upd = True
+
+		if resolution:
+			self.resolution = resolution
+			upd = True
+
+
+		if upd:
+			self._resize(None)
+
 
 	## converts coordinates from physical space into canvas pixel space
 	def physical_to_canvas(self, point):
@@ -1165,6 +1184,17 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
 
+		### panel variables
+		self.variables = {
+			'writefield': 	{'object': tk.StringVar(self), 'value':None},
+			'writespeed': 	{'object': tk.StringVar(self), 'value':None},
+			'idlespeed': 	{'object': tk.StringVar(self), 'value':None},
+			'pitch': 		{'object': tk.StringVar(self), 'value':None},
+			'exptype': 		{'object': tk.StringVar(self), 'value':None},
+		}
+		self.polygons = []
+
+
 		###########################
 		# frame with the right plot
 		###########################
@@ -1199,10 +1229,6 @@ class TabLithoPath(customtkinter.CTkFrame):
 		### load file button
 		self.gdsLoaded = False
 		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
-		# lambda: open_file(self, self.subplot, self.canvaz))
-		#makes a button that carries out the open_file function when clicked
-		#load.pack(side=tk.LEFT,padx=5,pady=5)
-		# method that allows you to browse
 
 
 
@@ -1230,23 +1256,22 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
-		self.tvar_writefield = tk.StringVar(cp)
-		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.tvar_writefield)
+		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
 		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
 		self.tvar_pitch = tk.StringVar(cp)
-		self.control_pitch = customtkinter.CTkEntry(cp, textvariable= self.tvar_pitch)
+		self.control_pitch = customtkinter.CTkEntry(cp, textvariable=self.variables['pitch']['object'])
 		self.control_pitch.grid(row=2, column=1, padx=4, sticky='ew')
 
 		customtkinter.CTkLabel(cp, text="Write Speed [nm/s]: ").grid(row=3, column=0, pady=4, sticky='w')		
 		self.tvar_writespeed = tk.StringVar(cp)
-		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_writespeed)
+		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['writespeed']['object'])
 		self.control_writespeed.grid(row=3, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
 		self.tvar_idlespeed = tk.StringVar(cp)
-		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_idlespeed)
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['idlespeed']['object'])
 		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
@@ -1258,8 +1283,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
 
 		options = ['Matrix Script','.txt file']
-		self.tvar_exptype = tk.StringVar(cp)
-		self.control_exptype = ttk.OptionMenu(cp, self.tvar_exptype, options[0], *options, command=self.exptype_onchange)
+		self.control_exptype = ttk.OptionMenu(cp, self.variables['exptype']['object'], options[0], *options, command=self.exptype_onchange)
 		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
 
 		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
@@ -1327,6 +1351,46 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 		# hopefully the file was opened and parsed correctly!
+		# show the polygons on the canvas
+		self.polygons = []
+		mean = numpy.zeros(2, dtype=numpy.float64)
+		minmax = numpy.zeros((2,2), dtype=numpy.float64)
+		minmax[0,:] = float("inf")
+		minmax[1,:] = float("-inf")
+		
+		for shapeID in self.gds.shapes.keys():
+
+			shape = self.gds.shapes[shapeID]
+
+			# polygon of the starting shape
+			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="red")
+			self.polygons.append(poly)
+			self.canvas.AddObject(poly, noRender=True)
+
+			m = numpy.mean(shape.vertexes[0:-1], axis=0) # avoid the last point since it is same as first
+			mean += m
+
+			m = numpy.min(numpy.concatenate((shape.vertexes, [minmax[0]]), axis=0), axis=0)
+			minmax[0] = m
+			m = numpy.max(numpy.concatenate((shape.vertexes, [minmax[1]]), axis=0), axis=0)
+			minmax[1] = m
+			
+			# TODO: add rasterization if done
+
+		# rescale and recenter the
+		mean /= len(self.gds.shapes)
+		self.canvas.center = mean
+
+		# we want canvas.physicalside to be bigger than max-min
+		desiredSide = numpy.max(minmax[1]-minmax[0])*1.1
+		currentSidePx = numpy.min(self.canvas.size)
+		currentSide = currentSidePx / self.canvas.resolution
+		desiredSideRes = currentSidePx / desiredSide
+		#print("res: ",currentSide,currentSidePx,desiredSide,desiredSideRes)
+
+		# this will also redraw the canvas
+		self.canvas.setSpace(mean, desiredSideRes)
+
 
 
 		'''
