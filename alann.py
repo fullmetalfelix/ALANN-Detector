@@ -16,7 +16,8 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib import pyplot as plt
-import gds_conv # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
+
+import GDSConverter # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
 
 
 
@@ -48,6 +49,569 @@ def resizing(frame, rows, columns, weight=1):
 		frame.grid_columnconfigure(i, weight=1)
 
 
+class CanvasLine(object):
+
+	def __init__(self, name, points, **kwargs):
+
+		# params is a numpy matrix Nx2 physical space coordinates
+		# where N is the number of points
+		self.points = points
+		self.name = name
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
+		
+		last = None
+		for i in range(self.points.shape[0]):
+
+			# compute canvas px positions
+			q = canvas.physical_to_canvas(self.points[i])
+
+			# draw the line
+			if i > 0:
+				canvas.create_line(last[0], last[1], q[0], q[1], **self.options)
+
+			last = q
+
+class CanvasPoint(object):
+
+	def __init__(self, name, coords, pxsize, **kwargs):
+
+		self.name = name
+
+		self.coords = coords
+		self.pxsize = pxsize
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
+		p = canvas.physical_to_canvas(self.coords)
+		canvas.create_oval(p[0]-self.pxsize, p[1]-self.pxsize, p[0]+self.pxsize, p[1]+self.pxsize, **self.options)
+
+class CanvasSPM(object):
+
+	def __init__(self, name, spm):
+
+		self.name = name
+		self.spm = spm
+		
+
+	def render(self, canvas):
+
+		spm = self.spm
+
+		# get the vertexes of this spm in canvas px coordinates
+		# ASSUMPTIONS (DEBUG!!!):
+		# 	angle is 0
+		# 	slow scan is from bottom to top (positive y axis in physical space)
+		# 	fast scan is in the positive x physical axis
+
+
+		# determine which part of the picture to draw
+		# these are the canvas corners in physical space
+		y0 = canvas.corners[3,1]
+		ym = canvas.corners[0,1]
+		x0 = canvas.corners[0,0]
+		xm = canvas.corners[1,0]
+
+		#print("canvas corners:",[x0,y0],[xm,ym])
+
+		# if both corners of an edge are on the same side of the canvas, the image is out
+		spm_x0 = spm.frame_corners[0,0]
+		spm_xm = spm.frame_corners[1,0]
+
+		frame_x0 = numpy.max([x0,spm_x0])
+		frame_xm = numpy.min([xm,spm_xm])
+
+		#print("frame x",frame_x0,frame_xm,x0,xm)
+
+		if frame_xm < x0 or frame_x0 > xm:
+			#print("spm is out of canvas (x)")
+			return None
+
+		spm_y0 = spm.frame_corners[0,1]
+		spm_ym = spm.frame_corners[2,1]
+
+		frame_y0 = numpy.max([y0,spm_y0])
+		frame_ym = numpy.min([ym,spm_ym])
+
+		if frame_ym < y0 or frame_y0 > ym:
+			#print("spm is out of canvas (y)")
+			return None
+
+		# code here => there is some overlap between spm and canvas
+		#print("frame boundaries on spm (x):",[spm_x0,frame_x0],[spm_xm,frame_xm])
+		#print("frame boundaries on spm (y):",[spm_y0,frame_y0],[spm_ym,frame_ym])
+
+
+
+		# convert height values to color
+		# this can make the topography contrast go away quite a bit
+		data = spm.data - canvas.SPM_min # also applies the shift
+		data /= canvas.SPM_max/1.5
+		data *= 255
+
+		# final conversion to bytes and flip vertically
+		data = data.astype(numpy.uint8)
+		data = numpy.flip(data, axis=0)
+
+		# create the PIL image object from data
+		pic = Image.fromarray(data)
+		rot = pic.rotate(spm.angle, expand=True)
+		# make a rotation mask
+		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
+		mask += 255
+		mask = Image.fromarray(mask)
+		mask = mask.rotate(spm.angle, expand=True)
+
+		# this is completely white-transparent image to blend with rot using mask
+		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
+		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
+		bgim = Image.fromarray(bgim, mode="RGBA")
+		bgim = bgim.rotate(spm.angle, expand=True)
+
+		rotm = Image.composite(rot, bgim, mask)
+
+		# crop the image
+		# where is frame_x0 in spm pixel coordinates?
+		frame_px_x0 = int(numpy.floor((frame_x0 - spm_x0) / spm.pixelSize[0]))
+		frame_px_xm = int(numpy.ceil((frame_xm-spm_x0) / spm.pixelSize[0]))
+		if frame_px_xm == 0: frame_px_xm = 1
+
+		#print("frame pixel coords (x)",frame_px_x0,frame_px_xm)
+		#data = data[:,frame_px_x0:frame_px_xm+1]
+
+		frame_px_y0 = int(numpy.floor((frame_y0 - spm_y0) / spm.pixelSize[1]))
+		frame_px_ym = int(numpy.ceil((frame_ym-spm_y0) / spm.pixelSize[1]))
+		if frame_px_ym == 0: frame_px_ym = 1
+
+		#print("frame pixel coords (y)",frame_px_y0,frame_px_ym)
+		#data = data[frame_px_y0:frame_px_ym+1]
+
+		#print("data stats",numpy.mean(spm.data),numpy.min(spm.data),numpy.max(spm.data))
+
+		# perform the crop
+		cropbox = (frame_px_x0, rotm.size[1]-frame_px_ym, frame_px_xm, rotm.size[1]-frame_px_y0)
+		#print("cropping",rotm.size, cropbox)
+		pic = rotm.crop(cropbox)
+		
+
+		# resample to match canvas resolution
+
+		# we have to make the spm pixels the same size as the canvas pixels
+		# canvas pixel size is 1 / self.canvas_res
+		# spm pixel size is spm.pixelSize (x,y components)
+
+		trgPXsize = numpy.asarray([1,1]) / canvas.resolution
+		curPXsize = spm.pixelSize
+		scaling = curPXsize / trgPXsize
+		newsize = numpy.ceil(numpy.asarray([pic.size[0],pic.size[1]]) * scaling)
+		newsize = newsize.astype(numpy.uint32)
+		method = Image.Resampling.BICUBIC
+		if scaling[0] < 1 and scaling[1] < 1:
+			method = Image.Resampling.LANCZOS
+		#print(trgPXsize,curPXsize,scaling,"--",pic.size, newsize)
+
+		pic = pic.resize(newsize, resample=method)
+		tkpic = ImageTk.PhotoImage(image=pic)
+
+		self._crop = tkpic
+
+		p = numpy.asarray([frame_x0, frame_y0], dtype=numpy.float64)
+		c = canvas.physical_to_canvas(p)
+		#print("canvas placement:",p,c)
+		canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
+		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
+		
+class CanvasCrossHair(object):
+
+	def __init__(self, name, position, **kwargs):
+
+		self.name = name
+
+		# in physical space
+		self.position = position
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
+		tip = self.position
+		ctip = canvas.physical_to_canvas(tip)
+		
+		canvas.create_line(ctip[0], ctip[1]-8, ctip[0], ctip[1]-2, **self.options)
+		canvas.create_line(ctip[0], ctip[1]+8, ctip[0], ctip[1]+2, **self.options)
+
+		canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], **self.options)
+		canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], **self.options)
+
+
+class PhysicalCanvas(tk.Canvas):
+
+
+
+
+	def __init__(self, parent, **kwargs):
+
+		tk.Canvas.__init__(self, parent, **kwargs)
+		self.configure(**kwargs)
+
+		self.parent = parent
+
+		# center of the canvas in physical space
+		self.center = numpy.asarray([0,0], dtype=numpy.float64)
+
+		# canvas resolution in px/nm
+		self.resolution = 128
+		
+		# canvas widget size in pixels - will be set by resize
+		self.size = numpy.zeros(2, dtype=numpy.int32)
+
+		# canvas corner positions in physical space - order is ABCD clockwise A = top-left = canvas 0,0
+		self.corners = numpy.zeros((4,2), dtype=numpy.float64)
+
+
+		self._axisflipper = numpy.asarray([1,-1], dtype=numpy.float64)
+
+
+		self._stackPoints = []
+		self._stackLines = []
+		self._stackSPM = []
+
+		self.hasFocus = False
+
+
+		self.variables = {
+
+			'resolution': 	{"object": tk.StringVar(value="..."), "value": None},
+			'mousepos': 	{"object": tk.StringVar(value="..."), "value": None}
+		}
+
+
+		self.callbacks = {
+			'click': [],
+
+		}
+
+
+		#self.bind("<FocusOut>", self.lose_focus)
+		self.bind("<1>", self._onclick)
+
+		self.bind("<Configure>", self._resize)
+		self.bind('<Motion>', self._onMouseMove)
+		self.bind('<Leave>', self._onMouseOut)
+
+		self.bind("<q>", lambda e: self.zoom(True))
+		self.bind("<e>", lambda e: self.zoom(False))
+
+		self.bind("<w>", lambda e: self.move([0,-1]))
+		self.bind("<a>", lambda e: self.move([-1,0]))
+		self.bind("<s>", lambda e: self.move([0,1]))
+		self.bind("<d>", lambda e: self.move([1,0]))
+
+
+	### FOCUS EVENTS ### ##############################################
+
+	def _onclick(self, event):
+
+		self.give_focus()
+		#print("canvas click")
+
+		for cb in self.callbacks['click']:
+			cb(event)
+
+		self._onMouseMove(event)
+
+	def give_focus(self):
+		#print(self,"get focus")
+		self.hasFocus = True
+		self.focus_set()
+		self.configure(background="white")
+
+	def lose_focus(self):
+		#print(self,"lost focus")
+		self.hasFocus = False
+		self.configure(background="gray")
+
+	def _onMouseMove(self, event):
+		
+		x, y = event.x, event.y
+		c = numpy.asarray([x,y])
+		p = self.canvas_to_physical(c)
+
+		self.variables['mousepos']['value'] = p
+
+		magn0, units0, dummy = self.physical_to_approximate(p[0],3)
+		magn1, units1, dummy = self.physical_to_approximate(p[1],3)
+
+		self.variables['mousepos']['object'].set(
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(magn0,units0, magn1,units1)
+		)
+
+
+	def _onMouseOut(self, event):
+
+		self.variables['mousepos']['object'].set("N/A")
+		self.variables['mousepos']['value'] = None
+
+	###################################################################
+
+	### CANVAS CONTROLS ### ###########################################
+
+	def zoom(self, inc=False):
+
+		if inc:
+			if self.resolution < 512:
+				self.resolution *= 2
+				self._resize(None)
+		else:
+			if self.resolution > 5.0e-07:
+				self.resolution /= 2
+				self._resize(None)
+
+
+	def move(self, direction):
+
+		step = 0.1 * self.size / self.resolution
+		self.center += numpy.asarray(direction) * self._axisflipper * step
+		self._resize(None)
+		
+
+	###################################################################
+
+	### POSITIONING ### ###############################################
+
+	## set the physical space center of the canvas and the resolution (if given)
+	def setSpace(self, center=None, resolution=None):
+
+		upd = False
+
+		if center is not None:
+			self.center = numpy.asarray(center, dtype=numpy.float64)
+			upd = True
+
+		if resolution:
+			self.resolution = resolution
+			upd = True
+
+
+		if upd:
+			self._resize(None)
+
+
+	## converts coordinates from physical space into canvas pixel space
+	def physical_to_canvas(self, point):
+
+		v = self.size * 0.5
+		v += self._axisflipper * (point - self.center) * self.resolution
+		return v
+
+	## converts coordinates from pixel space into physical space
+	def canvas_to_physical(self, pxpoint):
+
+		v = self._axisflipper * pxpoint
+		v-= self._axisflipper * self.size*0.5
+		v/= self.resolution
+		v+= self.center
+
+		return v
+
+	def physical_to_approximate(self, length, decimals=0):
+
+		# the input length must be in nm
+
+		# round the nm size to a convenient number
+		units = "nm"
+		magn = length
+		magn_nm = length
+
+		rounder = numpy.power(10,decimals)
+		prefix = 1
+
+		if numpy.abs(length) > 1000000:
+			
+			units = "mm" # units become um
+			magn /= 1000000
+			prefix = 1000000
+		
+		elif numpy.abs(length) > 1000:
+			
+			units = "μm" # units become um
+			magn /= 1000
+			prefix = 1000
+
+		elif numpy.abs(length) < 0.1:
+
+			units = "pm" # units become pico
+			prefix = 0.001
+			magn *= 1000
+
+		elif numpy.abs(length) < 1:
+
+			units = "Å" # units become angs
+			prefix = 0.1
+			magn *= 10
+
+
+		else:
+			
+			units = "nm"
+			prefix = 1
+			
+		# rounds to the requested decimal
+		magn = numpy.round(magn*rounder) / rounder
+		magn_nm = magn*prefix
+
+		return magn, units, magn_nm
+
+	###################################################################
+
+
+
+
+
+	def _compute_corners(self):
+
+		# get the widget shape
+		self.size[0] = self.winfo_width()
+		self.size[1] = self.winfo_height()
+
+		# compute the canvas corner positions in physical space
+		p = numpy.zeros(2)
+		self.corners[0] = self.canvas_to_physical(p)
+		p[0] = self.size[0]
+		self.corners[1] = self.canvas_to_physical(p)
+		p[1] = self.size[1]
+		self.corners[2] = self.canvas_to_physical(p)
+		p[0] = 0
+		self.corners[3] = self.canvas_to_physical(p)
+
+
+	def _resize(self, event):
+
+		self._compute_corners()
+		
+		# set resolution variable
+		self.variables['resolution']['value'] = self.resolution
+		if self.resolution >= 1:
+			self.variables['resolution']['object'].set("{} px/nm".format(self.resolution))
+		else:
+			self.variables['resolution']['object'].set("{}⁻¹ px/nm".format(1.0/self.resolution))
+
+		self.render()
+
+
+
+
+	def ClearStack(self):
+
+		self._stackPoints = []
+		self._stackLines = []
+		self._stackSPM = []
+		self.render()
+
+	def AddObject(self, cobj, noRender=False):
+
+		if isinstance(cobj, CanvasPoint):
+			self._stackPoints.append(cobj)
+		elif isinstance(cobj, CanvasLine) or isinstance(cobj, CanvasCrossHair):
+			self._stackLines.append(cobj)
+		elif isinstance(cobj, CanvasSPM):
+			self._stackSPM.append(cobj)
+		else:
+			raise TypeError("Invalid canvas object")
+
+
+		if not noRender:
+			self.render()
+
+	def RemoveObject(self, name, noRender=False):
+
+		self._stackPoints = [o for o in self._stackPoints if o.name != name]
+		self._stackLines = [o for o in self._stackLines if o.name != name]
+		self._stackSPM = [o for o in self._stackSPM if o.name != name]
+
+		if not noRender:
+			self.render()
+
+
+
+	def _draw_scalebar(self):
+
+		cw = self.size[0]
+		ch = self.size[1]
+
+		barheight = 20
+
+
+		barsize_px = 0.1 * cw # bar size in pixels - how many nm is that?
+		barsize_nm = barsize_px / self.resolution # size in nm -> round it
+
+		# round the nm size to a convenient number
+		units = "nm"
+		magn = 0
+
+		magn, units, barsize_nm = self.physical_to_approximate(barsize_nm, 0)
+
+		# then get the fixed pixel count
+		barsize_px = numpy.round(barsize_nm * self.resolution)
+		bartxt = "{} {}".format(magn, units)
+
+		
+		self.create_rectangle(cw-20-barsize_px, ch-20-barheight, cw-20, ch-20, fill="black",outline="white", width=2)
+		self.create_rectangle(cw-20-2*barsize_px, ch-20-barheight+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
+		self.create_text(cw-20-barsize_px/2, ch-20-barheight/2, justify=tk.CENTER, text=bartxt, fill="white")
+
+
+
+
+
+	def render(self):
+
+		self.delete("all")
+
+
+		# first render the SPMs
+
+		# get the global min/max
+		imgmin = float("inf")
+		imgmax = float("-inf")
+		for spmobj in self._stackSPM:
+			spm = spmobj.spm
+			m = numpy.min(spm.data)
+			imgmin = min(m, imgmin)
+
+			m = numpy.max(spm.data)
+			imgmax = max(m, imgmax)
+
+		self.SPM_min = imgmin
+		self.SPM_max = imgmax
+
+		# sort images by resolution - low res images are drawn first
+		scans = sorted(self._stackSPM, key=lambda x: x.spm.pixelSize[0], reverse=True)
+		
+
+		for o in scans: o.render(self)
+
+
+		# then the lines
+		for o in self._stackLines: o.render(self)
+
+		# last the points
+		for o in self._stackPoints: o.render(self)
+
+
+
+		# add the scale bar
+		self._draw_scalebar()
+
+
 
 # this is the main window which contains the different tabs and controls which is being seen
 class ALANNGUI(customtkinter.CTk):
@@ -75,46 +639,53 @@ class ALANNGUI(customtkinter.CTk):
 		self.menu_width=90
 
 		self.tabInfo = {
-			'TabHome':{
+			'nav':{
+				'class': 'TabHome',
 				'name': 'Navigation',
 				'button': None,
+				'frame': None
 			},
-			'TabLithoPath':{
-
+			'path':{
+				'class': 'TabLithoPath',
+				'name': 'Pathing',
 			}
 		}
 
-		tn = self.tabNames[]
+		# create the tabs and tab selector buttons
+		col = 0
+		for tn in self.tabInfo.keys():
+			
+			tab = self.tabInfo[tn]
+			cmd = lambda tn=tn: self.tab_show(tn)
 
-		HomeButton = customtkinter.CTkButton(menu, text="Navigation", command=lambda: self.show_frame(TabHome), width=self.menu_width)
-		HomeButton.grid(row=0, column=0, padx=2, pady=2)
-		
-		RastPathButton = customtkinter.CTkButton(menu, text="Raster Path", command = lambda: self.show_frame(RastPath), width=self.menu_width)
-		RastPathButton.grid(row=0, column=1, padx=2, pady=2)
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
+			tab['button'].grid(row=0, column=col, padx=2, pady=2)
+			tab['button'].configure(fg_color="#4682bd")
 
-		#menu.grid(row=0,column=0,sticky='nsew')
-
-
-		# dictionary containing all the tabs
-		self.frames = {} 
-
-		for F in (TabHome, RastPath):
-        
-			frame = F(container, self)
-
-			self.frames[F] = frame
-
+			frame = globals()[tab['class']](container, self)
 			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-		
-		self.show_frame(TabHome)
+			tab['frame'] = frame
+
+			col += 1
+
+		self.tab_show('nav')
 
 
+	def tab_show(self, tabname):
 
-
-	def show_frame(self, cont): 
 		# brings forward the frame of the tab you want to see
-		frame = self.frames[cont]
-		frame.tkraise()
+		tab = self.tabInfo[tabname]
+
+		for tn in self.tabInfo.keys():
+			if tn != tab['class']:
+				self.tabInfo[tn]['button'].configure(fg_color="#4682bd", state=tk.NORMAL)
+				if self.tabInfo[tn]['frame'].canvas:
+					self.tabInfo[tn]['frame'].canvas.lose_focus()
+
+		tab['button'].configure(fg_color="#46bd64", state=tk.DISABLED)
+		tab['frame'].tkraise()
+		if tab['frame'].canvas:
+			tab['frame'].canvas.give_focus()
 
 
 
@@ -123,7 +694,7 @@ class ALANNGUI(customtkinter.CTk):
 # this is the main navigation/scanning panel of the GUI
 class TabHome(customtkinter.CTkFrame):
 	
-	# max image size is 12 um
+	# max image size is 12 μm
 	# more values in between are needed
 	# 1200nm 4.5um ...
 
@@ -132,72 +703,62 @@ class TabHome(customtkinter.CTkFrame):
 		
 		customtkinter.CTkFrame.__init__(self, parent)
 		
+		self.alanngui = controller
 		self._scans = []
 	
+		self.variables = {
+			'tippos': {'object': tk.StringVar(value="..."), 'value': numpy.asarray([0,0], dtype=numpy.float64)},
+		}
+
 		self.grid_rowconfigure(0, weight=1)
-		self.grid_columnconfigure(0, weight=0, minsize=200)
+		self.grid_columnconfigure(0, weight=0, minsize=400)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
-		# this should be the main control panel
-		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4, name="controls")
-		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
-		self.frame_ctrl = frame_ctrl
 
 
-
-		customtkinter.CTkLabel(master=frame_ctrl,text="Controls").grid(row=0, column=0)
-
-		frm_scan = self._init_scan_panel(frame_ctrl)
-		frm_scan.grid(row=1, column=0, pady=4)
-		
-		nrow = 1
-
-		# and this is the map panel
-		frame_map = customtkinter.CTkFrame(master=self, width=250, height=240, corner_radius=4)
-		frame_map.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
+		# and this is the map panel - for the canvas
+		frame_map = customtkinter.CTkFrame(master=self, corner_radius=4)
+		frame_map.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
 
 		frame_map.grid_columnconfigure(0, weight=2)
-		#frame_map.grid_columnconfigure(1, weight=0, minsize=20)
 		frame_map.grid_rowconfigure(0, weight=2)
-		#frame_map.grid_rowconfigure(1, weight=0, minsize=20)
 
-		# canvas
-		canvas = tk.Canvas(frame_map)
+		# canvas - this has to go first
+		canvas = PhysicalCanvas(frame_map, background="white")
 		canvas.grid(row=0, column=0,padx=4,pady=4, sticky="nsew")
 		self.canvas = canvas
 
-		### canvas navigation
-		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
-		frame_map_ctrl.grid(row=nrow+1, column=0)
+
+
+		# this should be the main control bar on the left
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
+		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+		#frame_ctrl.grid_propagate(False)
+		self.frame_ctrl = frame_ctrl
+
+		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
+
+		frm_scan = self._init_scan_panel(frame_ctrl)
+		frm_scan.grid(row=1, column=0, pady=4, padx=4,sticky="new")
 		
-		# center of the canvas in physical space
-		self.canvas_0 = numpy.asarray([0,0], dtype=numpy.float64)
-
-		# canvas resolution in px/nm
-		self.canvas_res = 100
-
-		# canvas widget size in pixels
-		self.canvas_size = numpy.zeros(2, dtype=numpy.int32)
-
-		# canvas corner positions in physical space - order is ABCD clockwise A = top-left = canvas 0,0
-		self.canvas_corners = numpy.zeros((4,2), dtype=numpy.float64)
 
 
-		self._axisflipper = numpy.asarray([1,-1], dtype=numpy.float64)
+
+		# canvas navigation panel
+		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
+		frame_map_ctrl.grid(row=2, column=0, padx=4, pady=4, sticky="new")
+
+		canvas.callbacks['click'].append(self.MoveTip)
+		#canvas.bind("<Button-1>", self.canvas_onclick)
 
 
-		canvas.bind("<Configure>", self.resize)
-		canvas.bind("<Button-1>", self.canvas_onclick)
-		canvas.bind('<Motion>', self._canvas_onMouseMove)
-		canvas.bind('<Leave>', self._canvas_onMouseOut)
-		canvas.bind_all("<w>", self.canvas_onKeyPress)
-		canvas.bind_all("<a>", self.canvas_onKeyPress)
-		canvas.bind_all("<s>", self.canvas_onKeyPress)
-		canvas.bind_all("<d>", self.canvas_onKeyPress)
-		canvas.bind_all("<q>", self.canvas_onKeyPress)
-		canvas.bind_all("<e>", self.canvas_onKeyPress)
+		# start with tip in 0,0
+		# this is a crosshair object
+		self.crosshair = CanvasCrossHair("tippos", self.variables['tippos']['value'], fill='red')
+		canvas.AddObject(self.crosshair, noRender=True)
 
-	
+		self._onTipPosChange([0,0])
+
 
 
 		
@@ -205,7 +766,7 @@ class TabHome(customtkinter.CTkFrame):
 
 	def _init_scan_panel(self, mainframe):
 
-		frm_scan = customtkinter.CTkFrame(master=mainframe)
+		frm_scan = customtkinter.CTkFrame(master=mainframe,corner_radius=4)
 
 		# title label
 		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0, columnspan=3)
@@ -267,38 +828,38 @@ class TabHome(customtkinter.CTkFrame):
 
 		return frm_scan
 
-
 	def _init_nav_panel(self, mainframe):
 
 		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
 		
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, column=1)
 
-		customtkinter.CTkButton(master=frame_map_ctrl, text="↑", command=self.bt_nav_up).grid(row=1, column=1,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="←", command=self.bt_nav_left).grid(row=2, column=0,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="→", command=self.bt_nav_right).grid(row=2, column=2,padx=4,pady=4)
-		customtkinter.CTkButton(master=frame_map_ctrl, text="↓", command=self.bt_nav_down).grid(row=3, column=1,padx=4,pady=4)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
 
-		frame_map_zoom = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
-		frame_map_zoom.grid(row=2, column=1)
-		frame_map_zoom.grid_columnconfigure(0, weight=0, minsize=20)
-		frame_map_zoom.grid_columnconfigure(1, weight=0, minsize=20)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1, sticky="e")
 
-		customtkinter.CTkButton(master=frame_map_zoom, text="+", width=40, command=self.bt_nav_zoomIN).grid(row=0,column=0, padx=4)
-		customtkinter.CTkButton(master=frame_map_zoom, text="-", width=40, command=self.bt_nav_zoomOUT).grid(row=0,column=1, padx=4)
-		
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
-		self.tvar_canvas_res = tk.StringVar(value="...")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_res, text_font=("Terminal",9)).grid(row=4, column=1)
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0)
-		self.tvar_canvas_mouse = tk.StringVar(value="...")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_mouse, text_font=("Terminal",9)).grid(row=5, column=1)
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
-		self.tvar_canvas_scanner = tk.StringVar(value="...")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.tvar_canvas_scanner, text_font=("Terminal",9)).grid(row=6, column=1)
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1, sticky="e")
 
     
 		return frame_map_ctrl
@@ -307,6 +868,7 @@ class TabHome(customtkinter.CTkFrame):
 
 
 	def button_function(self):
+
 		print("button pressed")
 
 	def pxsize_change(self,value):
@@ -321,12 +883,12 @@ class TabHome(customtkinter.CTkFrame):
 
 		if s >= 1000:
 			s /= 1000
-			u = "um"
+			u = "μm"
 		self.tvar_phsize.set("{} {}".format(s,u))
 
 	def phang_change(self,value):
 
-		self.tvar_phang.set("{} deg".format(value))
+		self.tvar_phang.set("{}°".format(value))
 
 
 	def scan_click(self):
@@ -341,120 +903,53 @@ class TabHome(customtkinter.CTkFrame):
 		angle = self.sld_angle.get()
 
 		scan = self.ScanFunction(npx, size, angle)
-		self._scans.append(scan)
+		self.canvas.AddObject(CanvasSPM("spm", scan), noRender=True)
 		print("scan completed")
 
 		#plt.matshow(scan.data)
 		#plt.show()
 
-
-		self.canvas_redraw()
-
-
-	def bt_nav_up(self): self.canvas_move([0,-1])
-	def bt_nav_down(self): self.canvas_move([0,1])
-	def bt_nav_left(self): self.canvas_move([-1,0])
-	def bt_nav_right(self): self.canvas_move([1,0])
-	def canvas_move(self, direction):
-
-		step = 0.1 * self.canvas_size / self.canvas_res
-		self.canvas_0 += numpy.asarray(direction) * self._axisflipper * step
-		self.canvas_redraw()
-	def bt_nav_zoomIN(self):
-
-		self.canvas_res *= 1.5
-		self.canvas_redraw()
-	def bt_nav_zoomOUT(self):
-
-		self.canvas_res /= 1.5
-		self.canvas_redraw()
+		# update the tip position
+		tip = self.GetTipFunction()
+		self._onTipPosChange(tip)
 
 
-	def canvas_onKeyPress(self, event):
-		#print("pressed", event.char)
-		if event.char == "w": 	self.bt_nav_up()
-		elif event.char == "s":	self.bt_nav_down()
-		elif event.char == "a":	self.bt_nav_left()
-		elif event.char == "d":	self.bt_nav_right()
-		elif event.char == "q":	self.bt_nav_zoomIN()
-		elif event.char == "e":	self.bt_nav_zoomOUT()
 
-
-	def resize(self, event):
-
-		self.canvas_redraw()
+	def MoveTip(self, event):
 		
-	
-	def _canvas_compute_corners(self):
-
-		self.canvas_size[0] = self.canvas.winfo_width()
-		self.canvas_size[1] = self.canvas.winfo_height()
-
-		# compute the canvas corner positions in physical space
-		p = numpy.zeros(2)
-		self.canvas_corners[0] = self.canvas_to_physical(p)
-		p[0] = self.canvas_size[0]
-		self.canvas_corners[1] = self.canvas_to_physical(p)
-		p[1] = self.canvas_size[1]
-		self.canvas_corners[2] = self.canvas_to_physical(p)
-		p[0] = 0
-		self.canvas_corners[3] = self.canvas_to_physical(p)
-
-
-	def canvas_onclick(self,event):
-		
-		p = self.canvas_to_physical(numpy.asarray([event.x, event.y]))
-
-		print("canvas click at", event.x, event.y, "--",p)
+		p = self.canvas.canvas_to_physical(numpy.asarray([event.x, event.y]))
+		#print("canvas click at", event.x, event.y, "--",p)
 
 		self.MoveTipFunction(p)
-		self.canvas_redraw()
+
+		# when the movement is done, show the position
+		self._onTipPosChange(p)
 
 
-	## converts coordinates from physical space into canvas pixel space
-	def physical_to_canvas(self, point):
+	def _onTipPosChange(self, newpos):
 
-		v = self.canvas_size * 0.5
-		v += self._axisflipper * (point - self.canvas_0) * self.canvas_res
-		return v
-
-	def canvas_to_physical(self, pxpoint):
-
-		v = self._axisflipper * pxpoint
-		v-= self._axisflipper * self.canvas_size*0.5
-		v/= self.canvas_res
-		v+= self.canvas_0
-
-		return v
-
-
-	def _canvas_onMouseMove(self, event):
+		p = newpos
+		self.variables["tippos"]["value"][0] = p[0]
+		self.variables["tippos"]["value"][1] = p[1]
 		
-		x, y = event.x, event.y
-		c = numpy.asarray([x,y])
-		p = self.canvas_to_physical(c)
-		u = ["nm", "nm"]
-		for i in range(2):
-			if numpy.abs(p[i]) > 1000:
-				p[i] /= 1000
-				u[i] = "um"
+		m0, u0, n0 = self.canvas.physical_to_approximate(p[0], 3)
+		m1, u1, n1 = self.canvas.physical_to_approximate(p[1], 3)
+		self.variables['tippos']['object'].set(
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(m0,u0, m1,u1)
+		)
 
-		self.tvar_canvas_mouse.set("{:+.3f} {}, {:+.3f} {}".format(p[0],u[0],p[1],u[1]))
+		self.canvas.render()
 
 
-	def _canvas_onMouseOut(self, event):
-
-		self.tvar_canvas_mouse.set("---")
-
-
+	'''
 	def canvas_redraw(self):
+
+
 
 		self.canvas.delete("all")
 
 		self._canvas_compute_corners()
 
-		self._pixelBuffer = numpy.zeros(self.canvas_size, dtype=numpy.float64)
-		self._pixelStats = numpy.zeros(self.canvas_size, dtype=numpy.int32)
 
 		# draw the spms
 
@@ -479,17 +974,6 @@ class TabHome(customtkinter.CTkFrame):
 		for spm in scans:
 			#print("rendering spm...")
 			self.canvas_redraw_spm(spm)
-
-		'''
-		self._pixelStats[self._pixelStats==0] = 1
-		self._pixelBuffer /= self._pixelStats
-		self._pixelBuffer = self._pixelBuffer.astype(numpy.uint8)
-		pic = Image.fromarray(self._pixelBuffer)
-		if self._pixelBuffer.shape[0] > 100:
-			pic.save("canvas.png", format="PNG")
-		img =  ImageTk.PhotoImage(image=pic)
-		self.canvas.create_image(0,0, anchor="nw", image=img)
-		'''
 
 
 
@@ -643,46 +1127,7 @@ class TabHome(customtkinter.CTkFrame):
 		pic = pic.resize(newsize, resample=method)
 		tkpic = ImageTk.PhotoImage(image=pic)
 
-		'''
-		pic = Image.fromarray(data)
-		pic = pic.resize(newsize, resample=method)
-		pic.convert('RGBA')
-		tkpic = ImageTk.PhotoImage(image=pic)
-		pic.save("canvas.png", format="PNG")
-
-		pic2 = pic.rotate(30, expand=True, center=(0,1))
-
-		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
-		mask += 255
-		mask = Image.fromarray(mask)
-		mask = mask.rotate(30, expand=True)
-		mask.save("canvas.mask.png", format="PNG")
-
-		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
-		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
-		bgim = Image.fromarray(bgim, mode="RGBA")
-		bgim = bgim.rotate(30, expand=True)
-		bgim.save("canvas.bgim.png", format="PNG")
-
-		#rotm = Image.composite(pic2, fff, mask)
-		#fff = Image.new('RGBA', pic2.size, (255,)*4)
-		#pic2 = Image.composite(pic2, fff, pic2)
-		pic2.save("canvas.rot.png", format="PNG")
-		'''
-		'''# original image
-		img = Image.open('test.png')
-		# converted to have an alpha layer
-		im2 = img.convert('RGBA')
-		# rotated image
-		rot = im2.rotate(22.2, expand=1)
-		# a white image same size as rotated image
-		fff = Image.new('RGBA', rot.size, (255,)*4)
-		# create a composite image using the alpha layer of rot as a mask
-		out = Image.composite(rot, fff, rot)
-		# save your work (converting back to mode='1' or whatever..)
-		out.convert(img.mode).save('test2.bmp')
-		'''
-
+	
 
 		self._crops.append(tkpic)
 
@@ -697,23 +1142,6 @@ class TabHome(customtkinter.CTkFrame):
 		return
 
 
-	def canvas_redraw_scalebar(self):
-
-		cw = self.canvas.winfo_width()
-		ch = self.canvas.winfo_height()
-
-		# draw the scale bar
-		barsize_px = 0.1 * cw # bar size in pixels - how many nm is that?
-		barsize_nm = barsize_px / self.canvas_res # size in nm -> round it
-		barsize_nm = numpy.round(barsize_nm) # then get the fixed pixel count
-		barsize_px = numpy.round(barsize_nm * self.canvas_res)
-		bartxt = "{} nm".format(barsize_nm)
-		if barsize_nm > 1000: bartxt = "{} um".format(barsize_nm/1000)
-		self.canvas.create_rectangle(cw-20-barsize_px, ch-20-10, cw-20, ch-20, fill="black",outline="white", width=2)
-		self.canvas.create_rectangle(cw-20-2*barsize_px, ch-20-10+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
-		self.canvas.create_text(cw-20-barsize_px/2, ch-10, justify=tk.CENTER, text=bartxt)
-
-
 	# makes the crosshair at the scanner position
 	def canvas_redraw_tip(self):
 
@@ -723,7 +1151,7 @@ class TabHome(customtkinter.CTkFrame):
 		for i in range(2):
 			if numpy.abs(tip[i]) > 1000:
 				tip[i] /= 1000
-				u[i] = "um"
+				u[i] = "μm"
 
 		self.tvar_canvas_scanner.set("x:{:+.3f} {}, y:{:+.3f} {}".format(tip[0],u[0],tip[1],u[1]))
 		
@@ -734,29 +1162,21 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
 
 
+	'''
 
-class RastPath(customtkinter.CTkFrame):
+
+
+
+
+class TabLithoPath(customtkinter.CTkFrame):
 
 	def __init__(self, parent, controller):
-		customtkinter.CTkFrame.__init__(self,parent)
 
+		customtkinter.CTkFrame.__init__(self, parent)
+
+		self.alanngui = controller
 		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
 		# contain options to choose from on how to write. This dictionary will contain those frames
-<<<<<<< Updated upstream
-
-		# title
-		title = customtkinter.CTkLabel(self, text="Raster Path Determination", text_font = ("Helvetica",33) )
-		title.grid(row=0,column=1, columnspan=3)
-		description = customtkinter.CTkLabel(self, text = "Load a file (.txt, .mat, .bmap,...)", text_font = ("Helvetica",15))
-		description.grid(row=1, column=1, columnspan=3)
-
-		############################
-		# frame with the right plot
-		###########################
-		self.plotr = PlotFrame(self, parent, load=True)
-		self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
-		##########################################
-=======
 		self.gds = None
 
 		self.grid_rowconfigure(0, weight=1)
@@ -788,16 +1208,10 @@ class RastPath(customtkinter.CTkFrame):
 		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
 
 		
->>>>>>> Stashed changes
 
 		#######################################
-		# frame for Raster Properties
+		# frame for path controls
 		#######################################
-<<<<<<< Updated upstream
-		self.rast_prop = customtkinter.CTkFrame(self)
-		self.rast_prop.grid(row=4,column=1, sticky='nsew')
-		layer_label = customtkinter.CTkLabel(self.rast_prop, text="Raster Properties", text_font=('Helvetica', 15)).grid(row=0, columnspan=2, pady=5, padx=10, sticky='ew')
-=======
 		panel = customtkinter.CTkFrame(self)
 		panel.grid(row=0,column=0, padx=8, pady=8, sticky='nsew')
 		self.rast_prop = panel
@@ -847,39 +1261,43 @@ class RastPath(customtkinter.CTkFrame):
 
 
 		customtkinter.CTkLabel(cp, text="Export paths").grid(row=6, column=0, columnspan=2, pady=8, sticky='ew')
->>>>>>> Stashed changes
 
 		# Entry fields and their labels
+		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
+
 		options = ['Matrix Script','.txt file']
-		self.var_type = tk.StringVar(self.rast_prop)
-		ExportAsType = ttk.OptionMenu(self.rast_prop, self.var_type, options[0], *options, command = self.change_rast_prop ).grid(row=1, column=1, pady=5, padx=10, sticky='ew')
-		ExportAsType_label = customtkinter.CTkLabel(self.rast_prop, text="Export as: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=5, padx=10,sticky='ew')
+		self.control_exptype = ttk.OptionMenu(cp, self.variables['exptype']['object'], options[0], *options, command=self.exptype_onchange)
+		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
 
-		self.write_field = tk.StringVar(self.rast_prop)
-		self.writeFieldSize = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_field)
-		self.writeFieldSize.grid(row=5, column=1,pady=5,  padx=10,sticky='ew')
-		writeFieldSize_label = customtkinter.CTkLabel(self.rast_prop, text="Write Field Size [nm]: ", text_font=('Helvetica', 10)).grid(row=5, column=0, pady=5, padx=10,sticky='ew')
+		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
 
-		self.pitch = tk.StringVar(self.rast_prop)
-		Pitch = customtkinter.CTkEntry(self.rast_prop, textvariable= self.pitch).grid(row=2, column=1,pady=5, padx=10, sticky='ew')
-		Pitch_label = customtkinter.CTkLabel(self.rast_prop, text="Pitch [nm]: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=5, padx=10,sticky='ew')
+		return cp
 
-		self.write_speed = tk.StringVar(self.rast_prop)
-		self.WriteSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.write_speed)
-		self.WriteSpeed.grid(row=6, column=1, pady=5, padx=10, sticky='ew')
-		WriteSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Write Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=6, column=0, pady=5, padx=10, sticky='ew')
 
-		self.idle_speed = tk.StringVar(self.rast_prop)
-		self.IdleSpeed = customtkinter.CTkEntry(self.rast_prop, textvariable=self.idle_speed)
-		self.IdleSpeed.grid(row=7, column=1,pady=5, padx=10, sticky='ew')
-		IdleSpeed_label = customtkinter.CTkLabel(self.rast_prop, text="Idle Speed [nm/s]: ", text_font=('Helvetica', 10)).grid(row=7, column=0, pady=5, padx=10,sticky='ew')
 
-<<<<<<< Updated upstream
-		InvertImg = customtkinter.CTkCheckBox(self.rast_prop,text="Invert Image?").grid(row=8, column=0, columnspan=2,pady=5,padx=10, sticky='n')
+	def _canvas_onclick(self, event):
 
-		ConvRastPathButton = customtkinter.CTkButton(self.rast_prop, text='Convert and Export Raster Paths', command = lambda: self.convert() )
-		ConvRastPathButton.grid(row=10, columnspan=2, pady=5 , padx=10)
-=======
+		if not self.gds:
+			return
+
+		c = numpy.asarray([event.x, event.y])
+		p = self.canvas.canvas_to_physical(c)
+		#print("check polygons at",c,p)
+
+		selected = None
+
+		for shapeID in self.gds.shapes.keys():
+			shape = self.gds.shapes[shapeID]
+			#print("checking poly",shapeID)
+
+			a = [x for x in self.polygons if x.srcShape == shape]
+			poly = a[0]
+
+			if shape.pointIsInside(p):
+
+				print("selected polygon",shapeID)
+				selected = shapeID
+
 				# mark as selected
 				poly.options['fill'] = 'red'
 				poly.options['width'] = 3
@@ -893,28 +1311,40 @@ class RastPath(customtkinter.CTkFrame):
 				poly.options['fill'] = 'blue'
 				poly.options['width'] = 1
 				self.frame_options_dict[shapeID].grid_forget()
->>>>>>> Stashed changes
 
-		#######################################
+		self.canvas.render()
+		
 
-		# auto-resizing for frames within RastPath (rast_prop and plotframe)
-		rows = [4,5]
-		columns = [2]
-		resizing(self, rows, columns)
 
-	def change_rast_prop(self,variable):
-		variable = self.var_type.get()
+	def exptype_onchange(self, variable):
+
+		"""
+		Export type selector onchange event handler.
+		This is called automatically by the GUI.
+
+		:param variable: selected format option
+		:type variable: str
+		
+		"""
+
+
 		if variable=='.txt file':
-			self.writeFieldSize.config(state=tk.DISABLED)
-			self.WriteSpeed.config(state=tk.DISABLED)
-			self.IdleSpeed.config(state=tk.DISABLED)
-		if variable=='Matrix Script':
-			self.writeFieldSize.config(state=tk.NORMAL)
-			self.WriteSpeed.config(state=tk.NORMAL)
-			self.IdleSpeed.config(state=tk.NORMAL)
+			self.control_writefield.config(state=tk.DISABLED)
+			self.control_writespeed.config(state=tk.DISABLED)
+			self.control_idlespeed.config(state=tk.DISABLED)
+		
+		elif variable=='Matrix Script':
+			self.control_writefield.config(state=tk.NORMAL)
+			self.control_writespeed.config(state=tk.NORMAL)
+			self.control_idlespeed.config(state=tk.NORMAL)
 
-	def convert(self):
-	# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
+		else:
+			raise ValueError("Export type not implemented")
+
+
+	def export_onclick(self):
+
+		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
 		# clear plot
 		
 		# define variables
@@ -922,25 +1352,10 @@ class RastPath(customtkinter.CTkFrame):
 		pitch = int(self.variables['pitch']['object'].get())
 		#write_speed = int(self.write_speed.get())
 		#idle_speed = int(self.idle_speed.get())
-<<<<<<< Updated upstream
-		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the gds_conv.py file)
-=======
->>>>>>> Stashed changes
 		# get vector scan coordinates for each shape
 		for shape in self.gds.shapes:
 			write_type = self.frame_options_dict[shape].var_scan.get()
 			scan_type = self.frame_options_dict[shape].var_fill.get() 
-<<<<<<< Updated upstream
-			self.shapes[shape] = gds_conv.shape(self.plotr.content.shapes[shape]['coordinates'])
-			self.shapes[shape].vector_scan(write_type, scan_type, pitch)
-		# plot the new cooords
-		self.plotr.update_plot(self.shapes)
-		self.plotr.canvaz.draw()
-
-	def open_file(self, child, subplot, canvaz):
-		# allows for file loading using file explorer window
-		# child is the frame the plot is in that contains the dictionary with the shapes
-=======
 			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
 		# plot the new cooords
 		# don't clear the canvas, just draw the raster path in a different colour so both
@@ -960,21 +1375,10 @@ class RastPath(customtkinter.CTkFrame):
 	def openfile_onclick(self):
 
 
->>>>>>> Stashed changes
 		file = filedialog.askopenfile(mode='r')
 		if file:
-			child.content = gds_conv.GDS_file(file)
+			self.gds = GDSConverter.GDS(file)
 			file.close()
-<<<<<<< Updated upstream
-		subplot.clear()
-		for i in child.content.shapes:
-			x = child.content.shapes[i]['coordinates'][:,0]
-			y = child.content.shapes[i]['coordinates'][:,1]	
-			subplot.plot(x,y, label="Shape "+str(i))
-			subplot.legend()
-			self.make_shape_frame(i)
-			canvaz.draw()
-=======
 
 
 		# hopefully the file was opened and parsed correctly!
@@ -1035,7 +1439,6 @@ class RastPath(customtkinter.CTkFrame):
 		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
->>>>>>> Stashed changes
 
 		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
 		frm.grid(row=1,columnspan=2, sticky="n")
@@ -1116,9 +1519,9 @@ if __name__ == "__main__":
 	# create the gui
 	gui = ALANNGUI()
 	# assign a scan function
-	gui.frames[TabHome].ScanFunction = scn.ScanImage
-	gui.frames[TabHome].MoveTipFunction = scn.MoveTip
-	gui.frames[TabHome].GetTipFunction = scn.GetTip
+	gui.tabInfo['nav']['frame'].ScanFunction = scn.ScanImage
+	gui.tabInfo['nav']['frame'].MoveTipFunction = scn.MoveTip
+	gui.tabInfo['nav']['frame'].GetTipFunction = scn.GetTip
 
 
 	# run the app
