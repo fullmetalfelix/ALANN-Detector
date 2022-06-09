@@ -1,5 +1,6 @@
 import re
 import numpy as np
+import numpy
 import pyclipper
 
 
@@ -35,7 +36,7 @@ class GDS:
 		self._to_shapes()
 
 		print("GDS file parsed")
-	
+
 
 	def _to_shapes(self):
 
@@ -124,6 +125,51 @@ class Shape:
 
 		return "shape[{}/{}]vertexes: {}".format(self.layer,self.index,self.vertexes)
 	
+
+
+	def pointIsInside(self, p):
+
+		# we need to check how many times a line from p (in any direction)
+		# intersects the segments of the shape
+
+		# p + l*d == x0 + m*r
+		# x0 = start of a segment
+		# d any direction
+		# r direction of the segment - or the segment vector not normalised even
+		
+		A = numpy.zeros((2,2),dtype=numpy.float64)
+		A[0,0] = 1
+		Ai = numpy.zeros((2,2), dtype=numpy.float64)
+		crossings = 0
+
+		for i in range(self.vertexes.shape[0]-1):
+
+			x0 = self.vertexes[i]
+			b = x0 - p
+			r = self.vertexes[i+1] - x0
+			A[:,1] = -r
+
+			det = numpy.linalg.det(A)
+			if det == 0: continue
+
+			Ai = -A
+			Ai[0,0] = A[1,1]
+			Ai[1,1] = A[0,0]
+			Ai /= det
+
+			l,m = numpy.dot(Ai, b)
+			if l < 0: continue
+			if m < 0 or m > 1:
+				continue
+			else:
+				crossings += 1
+				#print("crossing at",x0+m*r,m)
+
+		#print("total crossings",crossings)
+		return (crossings % 2 != 0)
+
+
+
 	def Save(self):
 
 		filename = "shape-{}-{}.txt".format(self.layer,self.index)
@@ -306,3 +352,8 @@ if __name__ == "__main__":
 	# solution (a list of paths): [[[253, 193], [187, 193], [187, 157], [253, 157]]]
 
 	plt.show() # if you need...
+
+	print(shape.vertexes)
+	p = numpy.asarray([0,0])
+	p = shape.vertexes[0]+[1,1]
+	print(p,shape.pointIsInside(p))

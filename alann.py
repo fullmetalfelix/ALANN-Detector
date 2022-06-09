@@ -1210,6 +1210,8 @@ class TabLithoPath(customtkinter.CTkFrame):
 		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
 		self.canvas = canvas
 
+		canvas.callbacks['click'].append(self._canvas_onclick)
+
 		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
 		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
 
@@ -1292,6 +1294,42 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 
+	def _canvas_onclick(self, event):
+
+		if not self.gds:
+			return
+
+		c = numpy.asarray([event.x, event.y])
+		p = self.canvas.canvas_to_physical(c)
+		#print("check polygons at",c,p)
+
+		selected = None
+
+		for shapeID in self.gds.shapes.keys():
+			shape = self.gds.shapes[shapeID]
+			#print("checking poly",shapeID)
+
+			a = [x for x in self.polygons if x.srcShape == shape]
+			poly = a[0]
+
+			if shape.pointIsInside(p):
+
+				print("selected polygon",shapeID)
+				selected = shapeID
+
+				# mark as selected
+				poly.options['fill'] = 'red'
+				poly.options['width'] = 3
+				
+			else:
+
+				# deselect the polygon
+				poly.options['fill'] = 'blue'
+				poly.options['width'] = 1
+
+		self.canvas.render()
+		
+
 
 	def exptype_onchange(self, variable):
 
@@ -1363,7 +1401,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 			shape = self.gds.shapes[shapeID]
 
 			# polygon of the starting shape
-			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="red")
+			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="blue")
+			poly.srcShape = shape
+
 			self.polygons.append(poly)
 			self.canvas.AddObject(poly, noRender=True)
 
@@ -1393,24 +1433,6 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 
-		'''
-		# allows for file loading using file explorer window
-		# child is the frame the plot is in that contains the dictionary with the shapes
-		file = filedialog.askopenfile(mode='r')
-		if file:
-			child.content = GDSConverter.GDS(file)
-			file.close()
-
-		subplot.clear()
-
-		for i in child.content.shapes:
-			x = child.content.shapes[i]['coordinates'][:,0]
-			y = child.content.shapes[i]['coordinates'][:,1]	
-			subplot.plot(x,y, label="Shape {}".format(i))
-			subplot.legend()
-			self.make_shape_frame(i)
-			canvaz.draw()
-		'''
 
 	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
