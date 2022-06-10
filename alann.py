@@ -658,6 +658,7 @@ class ALANNGUI(customtkinter.CTk):
 			tab = self.tabInfo[tn]
 			cmd = lambda tn=tn: self.tab_show(tn)
 
+
 			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
 			tab['button'].configure(fg_color="#4682bd")
@@ -837,6 +838,7 @@ class TabHome(customtkinter.CTkFrame):
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
 
+
 		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
 		frm.grid(row=1,columnspan=2, sticky="n")
 
@@ -926,6 +928,7 @@ class TabHome(customtkinter.CTkFrame):
 		self._onTipPosChange(p)
 
 
+
 	def _onTipPosChange(self, newpos):
 
 		p = newpos
@@ -941,10 +944,10 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.render()
 
 
+
+	# DEPRECATED... they are now in the physical canvas object
 	'''
 	def canvas_redraw(self):
-
-
 
 		self.canvas.delete("all")
 
@@ -1161,11 +1164,7 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
 
-
 	'''
-
-
-
 
 
 class TabLithoPath(customtkinter.CTkFrame):
@@ -1193,15 +1192,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 			'exptype': 		{'object': tk.StringVar(self), 'value':None},
 		}
 		self.polygons = []
-
-
-		###########################
-		# frame with the right plot
-		###########################
-		#self.plotr = PlotFrame(self, parent, load=True)
-		#self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
-		##########################################
-
+		self.lith_paths = []
 
 		###########################
 		# CANVAS FRAME
@@ -1214,6 +1205,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
 		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
+
 
 
 
@@ -1233,20 +1225,14 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
 
 
-
-		
 		### control panel
 		self.controlpanel = self._init_controlPanel(panel)
 		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
-
-
-
-
-
-		# auto-resizing for frames within TabLithoPath (rast_prop and plotframe)
-		#rows = [4,5]
-		#columns = [2]
-		#resizing(self, rows, columns)
+		
+		
+		### navigation panel
+		self.navpanel = self._init_nav_panel(self.controlpanel)
+		self.navpanel.grid(row=9, column=0, columnspan=2, padx=4, pady=4, sticky="new")
 
 
 	def _init_controlPanel(self, master):
@@ -1262,17 +1248,14 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
-		self.tvar_pitch = tk.StringVar(cp)
 		self.control_pitch = customtkinter.CTkEntry(cp, textvariable=self.variables['pitch']['object'])
 		self.control_pitch.grid(row=2, column=1, padx=4, sticky='ew')
 
 		customtkinter.CTkLabel(cp, text="Write Speed [nm/s]: ").grid(row=3, column=0, pady=4, sticky='w')		
-		self.tvar_writespeed = tk.StringVar(cp)
 		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['writespeed']['object'])
 		self.control_writespeed.grid(row=3, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
-		self.tvar_idlespeed = tk.StringVar(cp)
 		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['idlespeed']['object'])
 		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
 		
@@ -1320,12 +1303,18 @@ class TabLithoPath(customtkinter.CTkFrame):
 				# mark as selected
 				poly.options['fill'] = 'red'
 				poly.options['width'] = 3
+
+				self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
+
 				
 			else:
 
 				# deselect the polygon
 				poly.options['fill'] = 'blue'
 				poly.options['width'] = 1
+
+				self.frame_options_dict[shapeID].grid_forget()
+
 
 		self.canvas.render()
 		
@@ -1361,24 +1350,37 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
 		# clear plot
-		self.plotr.subplot.clear()
+		
 		# define variables
-		#write_field = int(self.write_field.get())
-		pitch = int(self.pitch.get())
+		#write_field = int(self.tvar_write_field.get())
+		pitch = int(self.variables['pitch']['object'].get())
 		#write_speed = int(self.write_speed.get())
 		#idle_speed = int(self.idle_speed.get())
-		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the GDSConverter.py file)
+
 		# get vector scan coordinates for each shape
-		for shape in self.plotr.content.shapes:
+		for shape in self.gds.shapes:
 			write_type = self.frame_options_dict[shape].var_scan.get()
 			scan_type = self.frame_options_dict[shape].var_fill.get() 
-			self.shapes[shape] = GDSConverter.Shape(self.plotr.content.shapes[shape]['coordinates'])
-			self.shapes[shape].vector_scan(write_type, scan_type, pitch)
+
+			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
+
 		# plot the new cooords
-		self.plotr.update_plot(self.shapes)
-		self.plotr.canvaz.draw()
+		# don't clear the canvas, just draw the raster path in a different colour so both
+		# can be seen at the same time
+		
+		# remove any lithography paths currently on canvas
+		for path in self.lith_paths: 
+			self.canvas.RemoveObject(path.name)
+
+		# draw the new lithography paths
+		for shape in self.gds.shapes:
+			lith_path = CanvasLine('lithpath'+str(shape), self.gds.shapes[shape].rasterPath, fill="red")
+			self.canvas.AddObject(lith_path)
+			self.lith_paths.append(lith_path)
+		
 
 
+	## called when the load button is clicked
 	def openfile_onclick(self):
 
 
@@ -1415,7 +1417,13 @@ class TabLithoPath(customtkinter.CTkFrame):
 			m = numpy.max(numpy.concatenate((shape.vertexes, [minmax[1]]), axis=0), axis=0)
 			minmax[1] = m
 			
+			# make the frames containing the option menus for all the shapes but do not render them on screen
+			# they will be rendered only when the mouse clicks within one of the shapes
+			self.make_shape_frame(shapeID)
+
+
 			# TODO: add rasterization if done
+
 
 		# rescale and recenter the
 		mean /= len(self.gds.shapes)
@@ -1436,17 +1444,42 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
-		self.frame_options_dict[n] = shape_frame(self, n)
-		resizing(self, [5+n],[])
-		self.plotr.grid(rowspan=n+2)
+		self.frame_options_dict[n] = shape_frame(self.controlpanel, n)
+	
+	def _init_nav_panel(self, mainframe):
 
-	def clear(self,subplot, canvas):
-		# gets rid of everything in the plot and deletes the panels made by make_shape_frame
-		subplot.clear()
-		canvas.draw()
-		for i in self.frame_options_dict:
-			self.frame_options_dict[i].grid_forget()
-			self.frame_options_dict[i].destroy()
+		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
+			
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1, sticky="e")
+
+
+		
+		return frame_map_ctrl
+
 
 
 class shape_frame(customtkinter.CTkFrame):
@@ -1455,7 +1488,6 @@ class shape_frame(customtkinter.CTkFrame):
 	#######################
 	def __init__(self, parent, n):
 		customtkinter.CTkFrame.__init__(self, parent)
-		self.grid(row=5+n,column=1, sticky='nesw')
 		label = customtkinter.CTkLabel(self, text="Shape "+str(n), text_font=('Helvetica', 10)).grid(row=0, column=1, pady=5, padx=10, sticky='n')
 
 		self.var_scan = tk.StringVar(self)
@@ -1469,42 +1501,6 @@ class shape_frame(customtkinter.CTkFrame):
 		ScanType_label = customtkinter.CTkLabel(self, text="Scan type: ", text_font=('Helvetica', 10)).grid(row=1, column=3, pady=5, padx=10, sticky='w')
 
 
-
-class PlotFrame(customtkinter.CTkFrame):
-	###########################
-	# frame with a matplotlib plot
-	###########################
-	def __init__(self, parent, controller, load=False):
-		customtkinter.CTkFrame.__init__(self, parent, width=150, height=150) 
-		#make our figure and add blank plot
-		f = Figure(figsize=(2,3), dpi=100)
-		self.subplot = f.add_subplot(111)
-		self.content = None
-
-		self.canvaz = FigureCanvasTkAgg(f, self) 
-		self.canvaz.draw()
-		self.canvaz.get_tk_widget().pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10,pady=10)
-
-		toolbar = NavigationToolbar2Tk(self.canvaz, self)
-		toolbar.update()
-		self.canvaz._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20,pady=10)
-		#button to clear the canvaz
-		clear = customtkinter.CTkButton(self, text='Clear', command = lambda: parent.clear(self.subplot, self.canvaz) )
-		clear.pack(side=tk.LEFT,padx=5,pady=5)
-
-		if load:
-			load = customtkinter.CTkButton(self, text='Load', command = lambda: parent.open_file(self, self.subplot, self.canvaz) ) 
-			#makes a button that carries out the open_file function when clicked
-			load.pack(side=tk.LEFT,padx=5,pady=5)
-			# method that allows you to browse
-
-	def update_plot(self, shapes):
-		for shape in shapes:
-			x = shapes[shape].coords[:,0]
-			y = shapes[shape].coords[:,1]	
-			self.subplot.plot(x,y,linewidth=0.5, label='Shape '+str(shape))
-		self.subplot.legend()
-		self.canvaz.draw()	
 
 
 

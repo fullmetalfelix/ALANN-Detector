@@ -115,8 +115,6 @@ class Shape:
 
 			self.rasterPath = None
 
-			self.outline = coordinates
-			self.coords = coordinates
 
 			self.Save()
 			
@@ -183,24 +181,27 @@ class Shape:
 	def vector_scan(self, write_type, scan_type, pitch):
 
 		if write_type == 'X-serpentine':
-			self.coords = self.x_serp(pitch)
+			self.rasterPath = self.x_serp(pitch, scan_type)
 
 		if write_type == 'Y-serpentine':
-			self.coords = self.y_serp(self.coords, pitch)
+			self.rasterPath = self.y_serp(self.vertexes, pitch, scan_type)
 
 		if scan_type == 'Fill and outline':
-			self.coords = np.vstack((self.outline, self.coords[::-1,:]))
+			self.rasterPath = np.vstack((self.vertexes, self.rasterPath[::-1,:]))
 
 
-	def x_serp(self, pitch):
+
+	def x_serp(self, pitch, scan_type):
+
 
 		rot90 = np.array([[0,-1],[1,0]])
 
 		# rotate the coordinates by 90 degrees
-		coordsrot = np.matmul(rot90, self.coords.T).T
+		coordsrot = np.matmul(rot90, self.vertexes.T).T
 
 		# put this into y_serp
-		full = self.y_serp(coordsrot, pitch)
+		full = self.y_serp(coordsrot, pitch, scan_type)
+
 
 		# rotate back 
 		full = np.matmul(-rot90, full.T).T
@@ -208,13 +209,23 @@ class Shape:
 		return full
 
 
-	def y_serp(self, coords, pitch):
+
+	def y_serp(self, coords, pitch, scan_type):
 
 		# takes in coordinates of a shape and returns the vector coordinates needed to make a y serpentine across it
 		edge_top, edge_bottom = self.y_split_up(coords) # define the top and bottom edge
-		
+		#if scan_type == 'Fill and outline':
+		#	edge_top = edge_top-pitch
+		#	edge_bottom = edge_bottom+pitch
+
 		top_points = self.y_points_on_edge(edge_top, pitch) # find points along top spaced by pitch
 		bottom_points = self.y_points_on_edge(edge_bottom, pitch) # points along bottom
+
+	#	if scan_type == 'Fill and outline':
+	#		top_points = top_points[1:-1,:]
+	#		bottom_points = bottom_points[1:-1,:]
+
+
 		# to get the final path we need toalternate between the top and bottom points.
 		# we define an array of right shape and fill it in with the right points
 		full_points = np.zeros((top_points.shape[0]+bottom_points.shape[0],2))
