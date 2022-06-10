@@ -943,7 +943,6 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.render()
 
 
-
 	# DEPRECATED... they are now in the physical canvas object
 	'''
 	def canvas_redraw(self):
