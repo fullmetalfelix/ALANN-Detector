@@ -153,7 +153,11 @@ class CanvasSPM(object):
 		# convert height values to color
 		# this can make the topography contrast go away quite a bit
 		data = spm.data - canvas.SPM_min # also applies the shift
+<<<<<<< Updated upstream
 		data /= canvas.SPM_max/1.5
+=======
+		data /= canvas.SPM_max
+>>>>>>> Stashed changes
 		data *= 255
 
 		# final conversion to bytes and flip vertically
@@ -295,8 +299,12 @@ class PhysicalCanvas(tk.Canvas):
 
 
 		self.callbacks = {
+<<<<<<< Updated upstream
 			'click': [],
 
+=======
+			'click': []
+>>>>>>> Stashed changes
 		}
 
 
@@ -387,6 +395,7 @@ class PhysicalCanvas(tk.Canvas):
 
 	### POSITIONING ### ###############################################
 
+<<<<<<< Updated upstream
 	## set the physical space center of the canvas and the resolution (if given)
 	def setSpace(self, center=None, resolution=None):
 
@@ -405,6 +414,8 @@ class PhysicalCanvas(tk.Canvas):
 			self._resize(None)
 
 
+=======
+>>>>>>> Stashed changes
 	## converts coordinates from physical space into canvas pixel space
 	def physical_to_canvas(self, point):
 
@@ -657,6 +668,7 @@ class ALANNGUI(customtkinter.CTk):
 			
 			tab = self.tabInfo[tn]
 			cmd = lambda tn=tn: self.tab_show(tn)
+<<<<<<< Updated upstream
 
 			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
@@ -670,6 +682,21 @@ class ALANNGUI(customtkinter.CTk):
 
 		self.tab_show('nav')
 
+=======
+
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
+			tab['button'].grid(row=0, column=col, padx=2, pady=2)
+			tab['button'].configure(fg_color="#4682bd")
+
+			frame = globals()[tab['class']](container, self)
+			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+			tab['frame'] = frame
+
+			col += 1
+
+		self.tab_show('nav')
+
+>>>>>>> Stashed changes
 
 	def tab_show(self, tabname):
 
@@ -714,8 +741,13 @@ class TabHome(customtkinter.CTkFrame):
 		self.grid_columnconfigure(0, weight=0, minsize=400)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
+<<<<<<< Updated upstream
 
 
+=======
+
+
+>>>>>>> Stashed changes
 		# and this is the map panel - for the canvas
 		frame_map = customtkinter.CTkFrame(master=self, corner_radius=4)
 		frame_map.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
@@ -730,16 +762,27 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
+<<<<<<< Updated upstream
 		# this should be the main control bar on the left
 		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 		#frame_ctrl.grid_propagate(False)
+=======
+
+		# this should be the main control bar on the left
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
+		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+>>>>>>> Stashed changes
 		self.frame_ctrl = frame_ctrl
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
+<<<<<<< Updated upstream
 		frm_scan.grid(row=1, column=0, pady=4, padx=4,sticky="new")
+=======
+		frm_scan.grid(row=1, column=0, pady=4, padx=4)
+>>>>>>> Stashed changes
 		
 
 
@@ -831,6 +874,7 @@ class TabHome(customtkinter.CTkFrame):
 	def _init_nav_panel(self, mainframe):
 
 		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+<<<<<<< Updated upstream
 		frame_map_ctrl.grid_columnconfigure(0, weight=0)
 		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
 		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
@@ -848,10 +892,29 @@ class TabHome(customtkinter.CTkFrame):
 		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
 		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
 
+=======
+		frame_map_ctrl.grid_columnconfigure(0, weight=1, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=2)
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+>>>>>>> Stashed changes
 		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
 		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
 		
 
+<<<<<<< Updated upstream
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
 
@@ -860,6 +923,16 @@ class TabHome(customtkinter.CTkFrame):
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0, sticky="w")
 		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1, sticky="e")
+=======
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0)
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0)
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0)
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1)
+>>>>>>> Stashed changes
 
     
 		return frame_map_ctrl
@@ -913,6 +986,25 @@ class TabHome(customtkinter.CTkFrame):
 		tip = self.GetTipFunction()
 		self._onTipPosChange(tip)
 
+<<<<<<< Updated upstream
+=======
+
+
+	def _canvas_compute_corners(self):
+
+		self.canvas_size[0] = self.canvas.winfo_width()
+		self.canvas_size[1] = self.canvas.winfo_height()
+
+		# compute the canvas corner positions in physical space
+		p = numpy.zeros(2)
+		self.canvas_corners[0] = self.canvas_to_physical(p)
+		p[0] = self.canvas_size[0]
+		self.canvas_corners[1] = self.canvas_to_physical(p)
+		p[1] = self.canvas_size[1]
+		self.canvas_corners[2] = self.canvas_to_physical(p)
+		p[0] = 0
+		self.canvas_corners[3] = self.canvas_to_physical(p)
+>>>>>>> Stashed changes
 
 
 	def MoveTip(self, event):
@@ -921,10 +1013,17 @@ class TabHome(customtkinter.CTkFrame):
 		#print("canvas click at", event.x, event.y, "--",p)
 
 		self.MoveTipFunction(p)
+<<<<<<< Updated upstream
 
 		# when the movement is done, show the position
 		self._onTipPosChange(p)
 
+=======
+
+		# when the movement is done, show the position
+		self._onTipPosChange(p)
+
+>>>>>>> Stashed changes
 
 	def _onTipPosChange(self, newpos):
 
@@ -937,11 +1036,19 @@ class TabHome(customtkinter.CTkFrame):
 		self.variables['tippos']['object'].set(
 			"x:{:+.3f} {}, y:{:+.3f} {}".format(m0,u0, m1,u1)
 		)
+<<<<<<< Updated upstream
+=======
+
+		self.canvas.render()
+>>>>>>> Stashed changes
 
 		self.canvas.render()
 
 
+<<<<<<< Updated upstream
 	'''
+=======
+>>>>>>> Stashed changes
 	def canvas_redraw(self):
 
 
@@ -1142,6 +1249,10 @@ class TabHome(customtkinter.CTkFrame):
 		return
 
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 	# makes the crosshair at the scanner position
 	def canvas_redraw_tip(self):
 
@@ -1168,6 +1279,13 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
+<<<<<<< Updated upstream
+=======
+
+
+
+
+>>>>>>> Stashed changes
 class TabLithoPath(customtkinter.CTkFrame):
 
 	def __init__(self, parent, controller):
@@ -1182,6 +1300,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_columnconfigure(0, weight=0, minsize=240)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
+<<<<<<< Updated upstream
 
 
 		### panel variables
@@ -1208,6 +1327,16 @@ class TabLithoPath(customtkinter.CTkFrame):
 		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
 
 		
+=======
+
+
+		###########################
+		# frame with the right plot
+		###########################
+		#self.plotr = PlotFrame(self, parent, load=True)
+		#self.plotr.grid(row=4,column=2, rowspan=2, sticky='nsew')
+		##########################################
+>>>>>>> Stashed changes
 
 		#######################################
 		# frame for path controls
@@ -1224,6 +1353,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.gdsLoaded = False
 		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
 
+<<<<<<< Updated upstream
 		### control panel
 		self.controlpanel = self._init_controlPanel(panel)
 		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
@@ -1232,6 +1362,29 @@ class TabLithoPath(customtkinter.CTkFrame):
 		### navigation panel
 		self.navpanel = self._init_nav_panel(self.controlpanel)
 		self.navpanel.grid(row=9, column=0, columnspan=2, padx=4, pady=4, sticky="new")
+=======
+
+		
+		### control panel
+		self.controlpanel = self._init_controlPanel(panel)
+		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
+
+
+		### canvas
+		canvas = PhysicalCanvas(self, bg="white")
+		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
+		self.canvas = canvas
+
+		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
+		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
+
+
+		# auto-resizing for frames within TabLithoPath (rast_prop and plotframe)
+		#rows = [4,5]
+		#columns = [2]
+		#resizing(self, rows, columns)
+
+>>>>>>> Stashed changes
 
 	def _init_controlPanel(self, master):
 
@@ -1242,6 +1395,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
+<<<<<<< Updated upstream
 		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
 		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
 		
@@ -1255,6 +1409,25 @@ class TabLithoPath(customtkinter.CTkFrame):
 		
 		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
 		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['idlespeed']['object'])
+=======
+		self.tvar_writefield = tk.StringVar(cp)
+		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.tvar_writefield)
+		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
+		self.tvar_pitch = tk.StringVar(cp)
+		self.control_pitch = customtkinter.CTkEntry(cp, textvariable= self.tvar_pitch)
+		self.control_pitch.grid(row=2, column=1, padx=4, sticky='ew')
+
+		customtkinter.CTkLabel(cp, text="Write Speed [nm/s]: ").grid(row=3, column=0, pady=4, sticky='w')		
+		self.tvar_writespeed = tk.StringVar(cp)
+		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_writespeed)
+		self.control_writespeed.grid(row=3, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
+		self.tvar_idlespeed = tk.StringVar(cp)
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.tvar_idlespeed)
+>>>>>>> Stashed changes
 		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
@@ -1266,7 +1439,12 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
 
 		options = ['Matrix Script','.txt file']
+<<<<<<< Updated upstream
 		self.control_exptype = ttk.OptionMenu(cp, self.variables['exptype']['object'], options[0], *options, command=self.exptype_onchange)
+=======
+		self.tvar_exptype = tk.StringVar(cp)
+		self.control_exptype = ttk.OptionMenu(cp, self.tvar_exptype, options[0], *options, command=self.exptype_onchange)
+>>>>>>> Stashed changes
 		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
 
 		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
@@ -1275,6 +1453,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 
 
+<<<<<<< Updated upstream
 	def _canvas_onclick(self, event):
 
 		if not self.gds:
@@ -1318,6 +1497,11 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 	def exptype_onchange(self, variable):
 
+=======
+
+	def exptype_onchange(self, variable):
+
+>>>>>>> Stashed changes
 		"""
 		Export type selector onchange event handler.
 		This is called automatically by the GUI.
@@ -1352,11 +1536,20 @@ class TabLithoPath(customtkinter.CTkFrame):
 		pitch = int(self.variables['pitch']['object'].get())
 		#write_speed = int(self.write_speed.get())
 		#idle_speed = int(self.idle_speed.get())
+<<<<<<< Updated upstream
+=======
+		self.shapes = {} #dictionary to hold all the shapes as 'shape' classes (from the GDSConverter.py file)
+>>>>>>> Stashed changes
 		# get vector scan coordinates for each shape
 		for shape in self.gds.shapes:
 			write_type = self.frame_options_dict[shape].var_scan.get()
 			scan_type = self.frame_options_dict[shape].var_fill.get() 
+<<<<<<< Updated upstream
 			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
+=======
+			self.shapes[shape] = GDSConverter.Shape(self.plotr.content.shapes[shape]['coordinates'])
+			self.shapes[shape].vector_scan(write_type, scan_type, pitch)
+>>>>>>> Stashed changes
 		# plot the new cooords
 		# don't clear the canvas, just draw the raster path in a different colour so both
 		# can be seen at the same time
@@ -1375,6 +1568,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 	def openfile_onclick(self):
 
 
+<<<<<<< Updated upstream
 		file = filedialog.askopenfile(mode='r')
 		if file:
 			self.gds = GDSConverter.GDS(file)
@@ -1426,6 +1620,39 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		# this will also redraw the canvas
 		self.canvas.setSpace(mean, desiredSideRes)
+=======
+
+	def openfile_onclick(self):
+
+
+		file = filedialog.askopenfile(mode='r')
+		if file:
+			self.gds = GDSConverter.GDS(file)
+			file.close()
+
+
+		# hopefully the file was opened and parsed correctly!
+
+
+		'''
+		# allows for file loading using file explorer window
+		# child is the frame the plot is in that contains the dictionary with the shapes
+		file = filedialog.askopenfile(mode='r')
+		if file:
+			child.content = GDSConverter.GDS(file)
+			file.close()
+
+		subplot.clear()
+
+		for i in child.content.shapes:
+			x = child.content.shapes[i]['coordinates'][:,0]
+			y = child.content.shapes[i]['coordinates'][:,1]	
+			subplot.plot(x,y, label="Shape {}".format(i))
+			subplot.legend()
+			self.make_shape_frame(i)
+			canvaz.draw()
+		'''
+>>>>>>> Stashed changes
 
 	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
