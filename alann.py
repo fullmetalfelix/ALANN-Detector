@@ -762,8 +762,7 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
-		
-		
+	### SUB PANELS ### ########################################
 
 	def _init_scan_panel(self, mainframe):
 
@@ -833,8 +832,8 @@ class TabHome(customtkinter.CTkFrame):
 
 		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
 		frame_map_ctrl.grid_columnconfigure(0, weight=0)
-		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
-		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
+		#frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
 
@@ -866,7 +865,7 @@ class TabHome(customtkinter.CTkFrame):
     
 		return frame_map_ctrl
 
-
+	###########################################################
 
 
 	def button_function(self):
@@ -1179,7 +1178,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.gds = None
 
 		self.grid_rowconfigure(0, weight=1)
-		self.grid_columnconfigure(0, weight=0, minsize=240)
+		self.grid_columnconfigure(0, weight=0, minsize=400)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
 
@@ -1197,7 +1196,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		###########################
 		# CANVAS FRAME
 		###########################
-		canvas = PhysicalCanvas(self, bg="white")
+		canvas = PhysicalCanvas(self, background="white")
 		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
 		self.canvas = canvas
 
@@ -1214,35 +1213,44 @@ class TabLithoPath(customtkinter.CTkFrame):
 		#######################################
 		panel = customtkinter.CTkFrame(self)
 		panel.grid(row=0,column=0, padx=8, pady=8, sticky='nsew')
+		panel.grid_columnconfigure(0, weight=1)
 		self.rast_prop = panel
 		self.mainpanel = panel
 
 		### title
-		customtkinter.CTkLabel(panel, text="LithoPath Controls", text_font=('Roboto', 14)).grid(row=0, columnspan=3, pady=4, padx=10, sticky='n')
+		customtkinter.CTkLabel(panel, text="LithoPath Controls", text_font=('Roboto', 14)).grid(row=0, column=0, pady=4, padx=4, sticky='new')
 
 		### load file button
 		self.gdsLoaded = False
-		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
+		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=0,sticky="n")
 
 
 		### control panel
 		self.controlpanel = self._init_controlPanel(panel)
-		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
+		self.controlpanel.grid(row=2, padx=4,pady=4,sticky="new")
 		
+		### shape control panel
+		self.shapepanel = self._init_shape_panel(panel)
+		self.shapepanel.grid(row=3, padx=4, pady=4, sticky="new")
 		
 		### navigation panel
-		self.navpanel = self._init_nav_panel(self.controlpanel)
-		self.navpanel.grid(row=9, column=0, columnspan=2, padx=4, pady=4, sticky="new")
+		self.navpanel = self._init_nav_panel(panel)
+		self.navpanel.grid(row=4,column=0, padx=4, pady=4, sticky="new")
 
+
+
+	### SUB PANELS ### ########################################
 
 	def _init_controlPanel(self, master):
 
 		cp = customtkinter.CTkFrame(master)
+		cp.grid_columnconfigure(0, weight=1)
+		cp.grid_columnconfigure(1, weight=1)
+
+		customtkinter.CTkLabel(cp, text="Raster settings").grid(row=0, columnspan=2, pady=4, sticky='new')
+
+
 		
-
-		customtkinter.CTkLabel(cp, text="Raster settings").grid(row=0, column=0, columnspan=2, pady=4, sticky='n')
-
-
 		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
 		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
 		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
@@ -1272,13 +1280,156 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
 
 		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
-
+		
 		return cp
+
+	def _init_nav_panel(self, mainframe):
+
+		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=2, sticky="n")
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
+			
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=2, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=2, column=1, sticky="e")
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=3, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=3, column=1, sticky="e")
+
+		
+		return frame_map_ctrl
+
+	def _init_shape_panel(self, master):
+
+		frm = customtkinter.CTkFrame(master=master, corner_radius=4)
+		frm.grid_columnconfigure(0, weight=0)
+		frm.grid_columnconfigure(1, weight=1)
+
+		self.variables['shape_selected'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_filltype'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_outline'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_raster'] = {'object': None, 'value': None}
+		self.variables['shape_clear'] = {'object': None, 'value': None}
+
+
+		self.variables['shape_selected']['object'].set('Shape rasterization')
+		label = customtkinter.CTkLabel(frm, textvariable=self.variables['shape_selected']['object'], text_font=('Helvetica', 10)).grid(row=0, columnspan=2, pady=4, padx=4, sticky='n')
+		
+		
+		options_scan = ['X-serpentine', 'Y-serpentine', 'Spiral', 'more tbc']
+		customtkinter.CTkLabel(frm, text="Fill type: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=4, padx=4,sticky='w')
+		self.variables['shape_filltype']['value'] = ttk.OptionMenu(frm, self.variables['shape_filltype']['object'], options_scan[0], *options_scan )
+		self.variables['shape_filltype']['value'].grid(row=1, column=1, pady=4,padx=4, sticky='e')
+		self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+		
+
+		options_fill = ['Only fill', 'Fill and outline']
+		customtkinter.CTkLabel(frm, text="Mode: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=4, padx=4, sticky='w')
+		self.variables['shape_outline']['value'] = ttk.OptionMenu(frm, self.variables['shape_outline']['object'], options_fill[0], *options_fill)
+		self.variables['shape_outline']['value'].grid(row=2, column=1, pady=4,padx=4, sticky='e')
+		self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+
+
+		self.variables['shape_raster']['value'] = customtkinter.CTkButton(master=frm, text="raster", command=self._raster_onclick)
+		self.variables['shape_raster']['value'].grid(row=3, column=0, padx=4,pady=4, sticky="ne")
+		self.variables['shape_raster']['value'].config(state=tk.DISABLED)
+
+		self.variables['shape_clear']['value'] = customtkinter.CTkButton(master=frm, text="reset", command=self._clear_onclick)
+		self.variables['shape_clear']['value'].grid(row=3, column=1, padx=4,pady=4, sticky="nw")
+		self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+
+		
+		return frm
+
+	###########################################################
+
+
+	## called when the load button is clicked
+	def openfile_onclick(self):
+
+
+		file = filedialog.askopenfile(mode='r')
+		print("selected file", file)
+
+		if file is None:
+			return
+
+
+		# code here => a file was selected
+		self.gds = GDSConverter.GDS(file)
+		file.close()
+
+
+		# hopefully the file was opened and parsed correctly!
+		# show the polygons on the canvas
+		self.polygons = []
+		mean = numpy.zeros(2, dtype=numpy.float64)
+		minmax = numpy.zeros((2,2), dtype=numpy.float64)
+		minmax[0,:] = float("inf")
+		minmax[1,:] = float("-inf")
+		
+		for shapeID in self.gds.shapes.keys():
+
+			shape = self.gds.shapes[shapeID]
+
+			# polygon of the starting shape
+			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="blue")
+			poly.srcShape = shape
+
+			self.polygons.append(poly)
+			self.canvas.AddObject(poly, noRender=True)
+
+			m = numpy.mean(shape.vertexes[0:-1], axis=0) # avoid the last point since it is same as first
+			mean += m
+
+			m = numpy.min(numpy.concatenate((shape.vertexes, [minmax[0]]), axis=0), axis=0)
+			minmax[0] = m
+			m = numpy.max(numpy.concatenate((shape.vertexes, [minmax[1]]), axis=0), axis=0)
+			minmax[1] = m
+			
+			# make the frames containing the option menus for all the shapes but do not render them on screen
+			# they will be rendered only when the mouse clicks within one of the shapes
+			#self.make_shape_frame(shapeID)
+
+
+			# TODO: add rasterization if done - NO! the file was just loaded so there cannot be a rasterization available
+
+
+		# rescale and recenter the
+		mean /= len(self.gds.shapes)
+		self.canvas.center = mean
+
+		# we want canvas.physicalside to be bigger than max-min
+		desiredSide = numpy.max(minmax[1]-minmax[0])*1.1
+		currentSidePx = numpy.min(self.canvas.size)
+		currentSide = currentSidePx / self.canvas.resolution
+		desiredSideRes = currentSidePx / desiredSide
+		#print("res: ",currentSide,currentSidePx,desiredSide,desiredSideRes)
+
+		# this will also redraw the canvas
+		self.canvas.setSpace(mean, desiredSideRes)
 
 
 
 	def _canvas_onclick(self, event):
 
+		# no gds = no fun
 		if not self.gds:
 			return
 
@@ -1304,8 +1455,20 @@ class TabLithoPath(customtkinter.CTkFrame):
 				poly.options['fill'] = 'red'
 				poly.options['width'] = 3
 
-				self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
+				#self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
+				self.variables['shape_selected']['object'].set("Shape[{}] rasterization".format(shapeID))
+				self.variables['shape_selected']['value'] = shape
 
+				# load the rasterization options if available
+				self.variables['shape_filltype']['value'].config(state=tk.NORMAL)
+				self.variables['shape_outline']['value'].config(state=tk.NORMAL)
+				self.variables['shape_raster']['value'].config(state=tk.NORMAL)
+				self.variables['shape_clear']['value'].config(state=tk.NORMAL)
+				# ...
+				if shape.rasterPath is not None:
+					self.variables['shape_filltype']['object'].set(shape.rasterType)
+					self.variables['shape_outline']['object'].set(shape.rasterMode)
+					
 				
 			else:
 
@@ -1313,7 +1476,20 @@ class TabLithoPath(customtkinter.CTkFrame):
 				poly.options['fill'] = 'blue'
 				poly.options['width'] = 1
 
-				self.frame_options_dict[shapeID].grid_forget()
+
+
+		if selected is None:
+
+			self.variables['shape_selected']['object'].set("Shape[not selected] rasterization")
+			self.variables['shape_selected']['value'] = None
+
+			# disable controls
+			self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+			self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+			self.variables['shape_raster']['value'].config(state=tk.DISABLED)
+			self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+
+
 
 
 		self.canvas.render()
@@ -1344,6 +1520,44 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		else:
 			raise ValueError("Export type not implemented")
+
+
+	def _raster_onclick(self):
+
+		shape = self.variables['shape_selected']['value']
+		if shape is None: return
+
+
+		# remove old rasterization from view - do not update
+		self.canvas.RemoveObject('polyfill-{}'.format(shape.index), noRender=True)
+
+		# compute the rasterization
+		rtype = self.variables['shape_filltype']['object'].get()
+		routl = self.variables['shape_outline']['object'].get()
+		pitch = int(self.variables['pitch']['object'].get())
+
+		shape.vector_scan(rtype, routl, pitch)
+		
+
+		# add new rasterization to the canvas
+		fillLine = CanvasLine("polyfill-{}".format(shape.index), shape.rasterPath, fill="orange")
+		self.canvas.AddObject(fillLine)
+
+
+
+	def _clear_onclick(self):
+
+		shape = self.variables['shape_selected']['value']
+		if shape is None: return
+
+		# clear rasterization parameters
+		shape.rasterPath = None
+		shape.rasterType = None
+		shape.rasterMode = None
+
+		# remove rasterization from canvas
+		self.canvas.RemoveObject('polyfill-{}'.format(shape.index))
+
 
 
 	def export_onclick(self):
@@ -1379,126 +1593,6 @@ class TabLithoPath(customtkinter.CTkFrame):
 			self.lith_paths.append(lith_path)
 		
 
-
-	## called when the load button is clicked
-	def openfile_onclick(self):
-
-
-		file = filedialog.askopenfile(mode='r')
-		if file:
-			self.gds = GDSConverter.GDS(file)
-			file.close()
-
-
-		# hopefully the file was opened and parsed correctly!
-		# show the polygons on the canvas
-		self.polygons = []
-		mean = numpy.zeros(2, dtype=numpy.float64)
-		minmax = numpy.zeros((2,2), dtype=numpy.float64)
-		minmax[0,:] = float("inf")
-		minmax[1,:] = float("-inf")
-		
-		for shapeID in self.gds.shapes.keys():
-
-			shape = self.gds.shapes[shapeID]
-
-			# polygon of the starting shape
-			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="blue")
-			poly.srcShape = shape
-
-			self.polygons.append(poly)
-			self.canvas.AddObject(poly, noRender=True)
-
-			m = numpy.mean(shape.vertexes[0:-1], axis=0) # avoid the last point since it is same as first
-			mean += m
-
-			m = numpy.min(numpy.concatenate((shape.vertexes, [minmax[0]]), axis=0), axis=0)
-			minmax[0] = m
-			m = numpy.max(numpy.concatenate((shape.vertexes, [minmax[1]]), axis=0), axis=0)
-			minmax[1] = m
-			
-			# make the frames containing the option menus for all the shapes but do not render them on screen
-			# they will be rendered only when the mouse clicks within one of the shapes
-			self.make_shape_frame(shapeID)
-
-
-			# TODO: add rasterization if done
-
-
-		# rescale and recenter the
-		mean /= len(self.gds.shapes)
-		self.canvas.center = mean
-
-		# we want canvas.physicalside to be bigger than max-min
-		desiredSide = numpy.max(minmax[1]-minmax[0])*1.1
-		currentSidePx = numpy.min(self.canvas.size)
-		currentSide = currentSidePx / self.canvas.resolution
-		desiredSideRes = currentSidePx / desiredSide
-		#print("res: ",currentSide,currentSidePx,desiredSide,desiredSideRes)
-
-		# this will also redraw the canvas
-		self.canvas.setSpace(mean, desiredSideRes)
-
-
-
-
-	def make_shape_frame(self, n):
-		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels
-		self.frame_options_dict[n] = shape_frame(self.controlpanel, n)
-	
-	def _init_nav_panel(self, mainframe):
-
-		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
-		frame_map_ctrl.grid_columnconfigure(0, weight=0)
-		frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
-		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=20)
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
-
-		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
-		frm.grid(row=1,columnspan=2, sticky="n")
-
-
-		cv = self.canvas
-
-		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
-
-		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
-		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
-			
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
-
-		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0, sticky="w")
-		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1, sticky="e")
-
-
-		
-		return frame_map_ctrl
-
-
-
-class shape_frame(customtkinter.CTkFrame):
-	#######################
-	# Frame which appears to let you select the different write options for the shapes
-	#######################
-	def __init__(self, parent, n):
-		customtkinter.CTkFrame.__init__(self, parent)
-		label = customtkinter.CTkLabel(self, text="Shape "+str(n), text_font=('Helvetica', 10)).grid(row=0, column=1, pady=5, padx=10, sticky='n')
-
-		self.var_scan = tk.StringVar(self)
-		options_scan = ['X-serpentine', 'Y-serpentine', 'Spiral', 'more tbc']
-		WriteType = ttk.OptionMenu(self, self.var_scan, options_scan[0], *options_scan ).grid(row=1, column=2, pady=5,padx=10, sticky='e')
-		WriteType_label = customtkinter.CTkLabel(self, text="Write type: ", text_font=('Helvetica', 10)).grid(row=1, column=1, pady=5, padx=10,sticky='w')
-
-		self.var_fill = tk.StringVar(self)
-		options_fill = ['Only fill', 'Fill and outline']
-		ScanType = ttk.OptionMenu(self, self.var_fill, options_fill[0], *options_fill  ).grid(row=1, column=4, pady=5,padx=10, sticky='e')
-		ScanType_label = customtkinter.CTkLabel(self, text="Scan type: ", text_font=('Helvetica', 10)).grid(row=1, column=3, pady=5, padx=10, sticky='w')
 
 
 

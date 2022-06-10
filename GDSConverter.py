@@ -114,7 +114,8 @@ class Shape:
 
 
 			self.rasterPath = None
-
+			self.rasterType = None
+			self.rasterMode = None
 
 			self.Save()
 			
@@ -180,11 +181,19 @@ class Shape:
 
 	def vector_scan(self, write_type, scan_type, pitch):
 
+
+		self.rasterType = write_type
+		self.rasterMode = scan_type
+
 		if write_type == 'X-serpentine':
 			self.rasterPath = self.x_serp(pitch, scan_type)
 
 		if write_type == 'Y-serpentine':
 			self.rasterPath = self.y_serp(self.vertexes, pitch, scan_type)
+
+
+		if write_type == "Spiral":
+			self.rasterPath = self.spiral(pitch)
 
 		if scan_type == 'Fill and outline':
 			self.rasterPath = np.vstack((self.vertexes, self.rasterPath[::-1,:]))
@@ -221,9 +230,6 @@ class Shape:
 		top_points = self.y_points_on_edge(edge_top, pitch) # find points along top spaced by pitch
 		bottom_points = self.y_points_on_edge(edge_bottom, pitch) # points along bottom
 
-	#	if scan_type == 'Fill and outline':
-	#		top_points = top_points[1:-1,:]
-	#		bottom_points = bottom_points[1:-1,:]
 
 
 		# to get the final path we need toalternate between the top and bottom points.
@@ -273,7 +279,6 @@ class Shape:
 			points = np.vstack((points,new_points))
 		return points
 
-
 	def y_split_up(self, coords):
 
 		# takes in coordinates of the shape and returns the top edge and bottom edge
@@ -305,12 +310,101 @@ class Shape:
 
 
 
-	def OffsetFilling(self, step):
+	def spiral(self, step):
+
+		# this always includes the outline
+
+		offset = -step
+		paths = []
+
+		# defines the outline as list of points - omit the last
+		subj = self.vertexes[0:-1]
+		source = [subj]
+		
+
+		# repeat until done
+		# take a path from the stack
+		# offset it
+		# 	if returns paths, add them to stack
+		# 	if no path is returned, we need to lower the offset
+
+		while offset < -1:
+
+			undoable = []
+
+			while len(source) > 0:
+
+				newsource = []
+				for path in source: # loop through all paths on the stack
+
+					pco = pyclipper.PyclipperOffset()
+					pco.AddPath(path, pyclipper.JT_SQUARE, pyclipper.ET_CLOSEDPOLYGON)
+					solution = pco.Execute(offset)
+
+					if len(solution) == 0:
+						# no solution was found - put in the undoable list
+						undoable.append(path)
+					else:
+						# if some paths were found:
+						# move the source path to the final list
+						paths.append(path)
+
+						# put the result paths on the stack
+						newsource.extend(solution)
+
+				# code here => 
+				# newsource polys can be offsetted again using the same offset
+				# undone polys are in undoable list and need smaller offset
+
+				# set the source with the resulting polys
+				source = newsource
+				# repeat until source is empty
+
+			# code here => the source list is empty...
+			# maybe there are undoable polys that need a smaller step
+			if len(undoable) == 0: break
+
+			# set the source stack to the undoables
+			source = undoable
+
+			# reduce the offset
+			offset /= 1.5
+
+		# code here => offset too small or we did all the polygons
+
+		if len(undoable) > 0: 
+			for p in undoable:
+				paths.append(p)
+
+		
+		for i in range(len(paths)):
+			
+			paths[i] = numpy.asarray(paths[i])	
+
+			if i > 0:
+				# permute the points so that this paths starts at the point closest to the end of the previous path
+				plast = paths[i-1][-1]
+
+				dists = [paths[i][j] - plast for j in range(paths[i].shape[0])]
+				dists = [numpy.dot(x,x) for x in dists]
+				dists = numpy.asarray(dists)
+
+				idxmin = numpy.argmin(dists)
+				print(i, idxmin)
+				paths[i] = numpy.roll(paths[i], -idxmin, axis=0)
 
 
+			# replicate the first point at the end of each path - so it goes back to the beginning
+			tmp = numpy.zeros((paths[i].shape[0]+1, 2), dtype=numpy.float64)
+			tmp[0:-1] = paths[i]
+			tmp[-1] = paths[i][0]
+			paths[i] = tmp
 
-
-		pass
+		
+		# concatenate all paths
+		return numpy.concatenate(paths, axis=0)
+		
+		
 
 
 
