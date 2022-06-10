@@ -1212,8 +1212,7 @@ class ALANNGUI(customtkinter.CTk):
 			
 			tab = self.tabInfo[tn]
 			cmd = lambda tn=tn: self.tab_show(tn)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+
 
 			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
@@ -1227,7 +1226,6 @@ class ALANNGUI(customtkinter.CTk):
 
 		self.tab_show('nav')
 
-=======
 
 			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
@@ -1241,32 +1239,6 @@ class ALANNGUI(customtkinter.CTk):
 
 		self.tab_show('nav')
 
->>>>>>> Stashed changes
-
-	def tab_show(self, tabname):
-
-		# brings forward the frame of the tab you want to see
-		tab = self.tabInfo[tabname]
-
-		for tn in self.tabInfo.keys():
-			if tn != tab['class']:
-				self.tabInfo[tn]['button'].configure(fg_color="#4682bd", state=tk.NORMAL)
-				if self.tabInfo[tn]['frame'].canvas:
-					self.tabInfo[tn]['frame'].canvas.lose_focus()
-
-=======
-
-			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
-			tab['button'].grid(row=0, column=col, padx=2, pady=2)
-			tab['button'].configure(fg_color="#4682bd")
-
-			frame = globals()[tab['class']](container, self)
-			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-			tab['frame'] = frame
-
-			col += 1
-
-		self.tab_show('nav')
 
 
 	def tab_show(self, tabname):
@@ -1280,7 +1252,32 @@ class ALANNGUI(customtkinter.CTk):
 				if self.tabInfo[tn]['frame'].canvas:
 					self.tabInfo[tn]['frame'].canvas.lose_focus()
 
->>>>>>> Stashed changes
+
+
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
+			tab['button'].grid(row=0, column=col, padx=2, pady=2)
+			tab['button'].configure(fg_color="#4682bd")
+
+			frame = globals()[tab['class']](container, self)
+			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+			tab['frame'] = frame
+
+			col += 1
+
+		self.tab_show('nav')
+
+
+	def tab_show(self, tabname):
+
+		# brings forward the frame of the tab you want to see
+		tab = self.tabInfo[tabname]
+
+		for tn in self.tabInfo.keys():
+			if tn != tab['class']:
+				self.tabInfo[tn]['button'].configure(fg_color="#4682bd", state=tk.NORMAL)
+				if self.tabInfo[tn]['frame'].canvas:
+					self.tabInfo[tn]['frame'].canvas.lose_focus()
+
 		tab['button'].configure(fg_color="#46bd64", state=tk.DISABLED)
 		tab['frame'].tkraise()
 		if tab['frame'].canvas:
@@ -1313,19 +1310,6 @@ class TabHome(customtkinter.CTkFrame):
 		self.grid_columnconfigure(0, weight=0, minsize=400)
 		self.grid_columnconfigure(1, weight=2, minsize=400)
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
-
-=======
-
-<<<<<<< Updated upstream
-
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 		# and this is the map panel - for the canvas
 		frame_map = customtkinter.CTkFrame(master=self, corner_radius=4)
 		frame_map.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
@@ -1340,38 +1324,29 @@ class TabHome(customtkinter.CTkFrame):
 
 
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-		# this should be the main control bar on the left
-		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
-		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
-		#frame_ctrl.grid_propagate(False)
-=======
-=======
->>>>>>> Stashed changes
 
 		# this should be the main control bar on the left
 		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
 		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+		#frame_ctrl.grid_propagate(False)
+
+
+		# this should be the main control bar on the left
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
+		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+
 		self.frame_ctrl = frame_ctrl
 
 		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
 
 		frm_scan = self._init_scan_panel(frame_ctrl)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+
 		frm_scan.grid(row=1, column=0, pady=4, padx=4,sticky="new")
-=======
+
 		frm_scan.grid(row=1, column=0, pady=4, padx=4)
->>>>>>> Stashed changes
-=======
+
 		frm_scan.grid(row=1, column=0, pady=4, padx=4)
->>>>>>> Stashed changes
-		
+
 
 
 
