@@ -1448,7 +1448,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 			if shape.pointIsInside(p):
 
-				print("selected polygon",shapeID)
+				#print("selected polygon",shapeID)
 				selected = shapeID
 
 				# mark as selected

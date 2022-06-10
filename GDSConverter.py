@@ -390,7 +390,6 @@ class Shape:
 				dists = numpy.asarray(dists)
 
 				idxmin = numpy.argmin(dists)
-				print(i, idxmin)
 				paths[i] = numpy.roll(paths[i], -idxmin, axis=0)
 
 
