@@ -658,6 +658,7 @@ class ALANNGUI(customtkinter.CTk):
 			tab = self.tabInfo[tn]
 			cmd = lambda tn=tn: self.tab_show(tn)
 
+
 			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
 			tab['button'].grid(row=0, column=col, padx=2, pady=2)
 			tab['button'].configure(fg_color="#4682bd")
@@ -837,6 +838,7 @@ class TabHome(customtkinter.CTkFrame):
 
 		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
 
+
 		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
 		frm.grid(row=1,columnspan=2, sticky="n")
 
@@ -926,6 +928,7 @@ class TabHome(customtkinter.CTkFrame):
 		self._onTipPosChange(p)
 
 
+
 	def _onTipPosChange(self, newpos):
 
 		p = newpos
@@ -941,10 +944,10 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.render()
 
 
+
+	# DEPRECATED... they are now in the physical canvas object
 	'''
 	def canvas_redraw(self):
-
-
 
 		self.canvas.delete("all")
 
@@ -1161,11 +1164,7 @@ class TabHome(customtkinter.CTkFrame):
 		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
 		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
 
-
 	'''
-
-
-
 
 
 class TabLithoPath(customtkinter.CTkFrame):
@@ -1207,7 +1206,8 @@ class TabLithoPath(customtkinter.CTkFrame):
 		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
 		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
 
-		
+
+
 
 		#######################################
 		# frame for path controls
@@ -1224,6 +1224,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.gdsLoaded = False
 		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=1)
 
+
 		### control panel
 		self.controlpanel = self._init_controlPanel(panel)
 		self.controlpanel.grid(row=2, columnspan=3, padx=4,pady=4,sticky="new")
@@ -1232,6 +1233,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		### navigation panel
 		self.navpanel = self._init_nav_panel(self.controlpanel)
 		self.navpanel.grid(row=9, column=0, columnspan=2, padx=4, pady=4, sticky="new")
+
 
 	def _init_controlPanel(self, master):
 
@@ -1301,8 +1303,8 @@ class TabLithoPath(customtkinter.CTkFrame):
 				# mark as selected
 				poly.options['fill'] = 'red'
 				poly.options['width'] = 3
-				self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
 
+				self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
 
 				
 			else:
@@ -1310,7 +1312,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 				# deselect the polygon
 				poly.options['fill'] = 'blue'
 				poly.options['width'] = 1
+
 				self.frame_options_dict[shapeID].grid_forget()
+
 
 		self.canvas.render()
 		
@@ -1352,11 +1356,14 @@ class TabLithoPath(customtkinter.CTkFrame):
 		pitch = int(self.variables['pitch']['object'].get())
 		#write_speed = int(self.write_speed.get())
 		#idle_speed = int(self.idle_speed.get())
+
 		# get vector scan coordinates for each shape
 		for shape in self.gds.shapes:
 			write_type = self.frame_options_dict[shape].var_scan.get()
 			scan_type = self.frame_options_dict[shape].var_fill.get() 
+
 			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
+
 		# plot the new cooords
 		# don't clear the canvas, just draw the raster path in a different colour so both
 		# can be seen at the same time
@@ -1372,6 +1379,8 @@ class TabLithoPath(customtkinter.CTkFrame):
 			self.lith_paths.append(lith_path)
 		
 
+
+	## called when the load button is clicked
 	def openfile_onclick(self):
 
 
@@ -1413,6 +1422,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 			self.make_shape_frame(shapeID)
 
 
+			# TODO: add rasterization if done
+
+
 		# rescale and recenter the
 		mean /= len(self.gds.shapes)
 		self.canvas.center = mean
@@ -1426,6 +1438,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		# this will also redraw the canvas
 		self.canvas.setSpace(mean, desiredSideRes)
+
+
+
 
 	def make_shape_frame(self, n):
 		# when we load up a design, each shape gets a panel with options on how to draw it. This makes the panels

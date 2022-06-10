@@ -114,7 +114,7 @@ class Shape:
 
 
 			self.rasterPath = None
-			
+
 
 			self.Save()
 			
@@ -190,7 +190,9 @@ class Shape:
 			self.rasterPath = np.vstack((self.vertexes, self.rasterPath[::-1,:]))
 
 
+
 	def x_serp(self, pitch, scan_type):
+
 
 		rot90 = np.array([[0,-1],[1,0]])
 
@@ -200,10 +202,12 @@ class Shape:
 		# put this into y_serp
 		full = self.y_serp(coordsrot, pitch, scan_type)
 
+
 		# rotate back 
 		full = np.matmul(-rot90, full.T).T
 
 		return full
+
 
 
 	def y_serp(self, coords, pitch, scan_type):
@@ -220,6 +224,7 @@ class Shape:
 	#	if scan_type == 'Fill and outline':
 	#		top_points = top_points[1:-1,:]
 	#		bottom_points = bottom_points[1:-1,:]
+
 
 		# to get the final path we need toalternate between the top and bottom points.
 		# we define an array of right shape and fill it in with the right points

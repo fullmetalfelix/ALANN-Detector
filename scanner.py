@@ -211,7 +211,7 @@ class Scanner(object):
 		vf = dr*numpy.asarray([numpy.cos(theta), numpy.sin(theta)])
 		vs = dr*numpy.asarray([-numpy.sin(theta), numpy.cos(theta)])
 		p0 = numpy.asarray([self.xset, self.yset])
-		print("scan start at",p0)
+		print("scan start at",p0,"size:",size)
 
 		for i in range(pixels): # loop over px in the slowscan direction
 			for j in range(pixels): # loop over px in the fastscan direction
