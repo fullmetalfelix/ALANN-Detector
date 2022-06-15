@@ -113,7 +113,7 @@ class Shape:
 
 
 
-			self.rasterPath = None
+			self.writePath = None
 			
 
 			self.Save()
@@ -181,13 +181,24 @@ class Shape:
 	def vector_scan(self, write_type, scan_type, pitch):
 
 		if write_type == 'X-serpentine':
-			self.rasterPath = self.x_serp(pitch, scan_type)
+			self.writePath = self.x_serp(pitch, scan_type)
 
 		if write_type == 'Y-serpentine':
-			self.rasterPath = self.y_serp(self.vertexes, pitch, scan_type)
+			self.writePath = self.y_serp(self.vertexes, pitch, scan_type)
 
 		if scan_type == 'Fill and outline':
-			self.rasterPath = np.vstack((self.vertexes, self.rasterPath[::-1,:]))
+			# the shape to be filled in will be inset by one pitch. We also match up the start/end of the shape outline with the
+			# beginning or end of the serpentine
+
+			### for now just start/end outline from start of fill, but later on when we combine all the shapes together
+			### it should be able to start/end outline from either side so as to minimise write time
+
+			# find closest vertex to first/last point of write path
+			DistancesFirstPt = np.sqrt(np.sum( (self.writePath[0,:] - self.vertexes), axis=1 )**2 )
+			#DistancesLastPt = np.sqrt(np.sum( (self.writePath[-1,:] - self.vertexes), axis=1 )**2 )
+			minDistIndex = np.argmin(DistancesFirstPt)
+			outline = np.vstack( (self.vertexes[minDistIndex+1:, :], self.vertexes[:1+minDistIndex, :] ) )  
+			self.writePath = np.vstack((outline, self.writePath[:,:]))
 
 
 	def x_serp(self, pitch, scan_type):
@@ -207,21 +218,20 @@ class Shape:
 
 
 	def y_serp(self, coords, pitch, scan_type):
-
 		# takes in coordinates of a shape and returns the vector coordinates needed to make a y serpentine across it
-		edge_top, edge_bottom = self.y_split_up(coords) # define the top and bottom edge
-		
 		if scan_type == 'Fill and outline':
-			edge_top[:,1] = edge_top[:,1] - pitch
-			edge_bottom[:,1] = edge_bottom[:,1] + pitch
+			# we use pyclipper to get coordinates for shape that is inset by one pitch
+			pc = pyclipper.PyclipperOffset() 
+			pc.AddPath(list(coords), pyclipper.JT_SQUARE, pyclipper.ET_CLOSEDPOLYGON)
+		
+			solution = pc.Execute(-pitch)
+			# solution doesn't include start point at the end so we add it on
+			coords = np.asarray([*solution[0], solution[0][0]]) 
+
+		edge_top, edge_bottom = self.y_split_up(coords) # define the top and bottom edge
 
 		top_points = self.y_points_on_edge(edge_top, pitch) # find points along top spaced by pitch
 		bottom_points = self.y_points_on_edge(edge_bottom, pitch) # points along bottom
-
-		if scan_type == 'Fill and outline':
-			top_points = top_points[1:-1,:]
-			bottom_points = bottom_points[1:-1,:]
-	
 		
 		# to get the final path we need toalternate between the top and bottom points.
 		# we define an array of right shape and fill it in with the right points
@@ -272,8 +282,8 @@ class Shape:
 
 
 	def y_split_up(self, coords):
-
 		# takes in coordinates of the shape and returns the top edge and bottom edge
+		
 		xmax = np.amax(coords[:,0], axis = 0)
 		xmin = np.amin(coords[:,0], axis = 0) 
 		top_start = [xmin, np.amax(coords[np.where(coords[:,0]==xmin),1])] # define the top left vertex (i.e. the start of top edge)
@@ -288,7 +298,8 @@ class Shape:
 			# we reverse it if ts is at the end as that's the convention we work with
 			top_edge = coords[te_index:ts_index+1,:][::-1,:].copy()
 			# bottom edge is whatever is left over
-			bottom_edge = np.vstack((coords[:te_index+1,:], coords[ts_index:,:]))[::-1,:]
+			bottom_edge = np.vstack((coords[:te_index+1,:], coords[ts_index:,:]))
+
 		if ts_index<te_index:
 			top_edge = coords[ts_index:te_index+1,:].copy()
 			# bottom edge is whatever is left over
@@ -297,7 +308,6 @@ class Shape:
 		# next reshuffle so bottom edge has same start point as top edge
 		bottom_start = int(np.where(np.sum(bottom_edge==top_start, axis=1)==2)[0])
 		bottom_edge = np.vstack((bottom_edge[bottom_start:,:], bottom_edge[:bottom_start,:]))
-		
 		return top_edge, bottom_edge
 
 
@@ -337,12 +347,13 @@ if __name__ == "__main__":
 	xs, ys = zip(*coord)
 	plt.plot(xs,ys)
 
-	offset = -20
+	offset = -100
+	
 	for rep in range(40):
 
 		pco = pyclipper.PyclipperOffset()
 		pco.AddPath(path, pyclipper.JT_SQUARE, pyclipper.ET_CLOSEDPOLYGON)
-
+		print(path)
 		solution = pco.Execute(offset)
 		if len(solution) == 0: break
 		solution = np.asarray(solution[0])

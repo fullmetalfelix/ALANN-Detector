@@ -1,1089 +1,1636 @@
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog # needed so we can open a file explorer window when looking for the .gds/.bmp/etc files
+import customtkinter
+
 import numpy
-import scipy
-import scipy.signal
-from scipy import ndimage
+from enum import IntEnum
 
-import matplotlib.pyplot as plt
-import math
+from scanner import Sample, SampleCheck, Scanner, SPM
 
+import PIL
+from PIL import Image, ImageTk
 
-## Returns a gaussian kernel with norm 1.
-# The matrix size will be (2size+1) x (2size+1)
-#
-def GaussianMatrix(size, sigma):
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
+from matplotlib import pyplot as plt
 
-	mat = numpy.zeros((2*size+1,2*size+1))
-	acc = 0
-
-	for i in range(-size,size+1):
-		for j in range(-size,size+1):
-
-			v = numpy.exp(-(i*i+j*j)/(2*sigma*sigma))
-			mat[i+size,j+size] = v
-			acc += v
-
-	mat /= acc
-
-	return mat
-
-
-## Base class for SPM images
-class SPM(object):
-
-	
-	## Create an SPM image from pixel matrix and other parameters
-	# \param data: pixel matrix as numpy array
-	# \param width: image width in meters
-	# \param height: image height in meters
-	def __init__(self, data, width, height, y_offset, x_offset, angle, channel_name_and_unit=['','']):
-
-		self.data = data
-		self.width = width
-		self.height = height
-		self.y_offset = y_offset
-		self.x_offset = x_offset
-		self.angle = angle
-		self.channel_name_and_unit = channel_name_and_unit
-
-		self.processing = {}
+import GDSConverter # some custom classes/functions for importing and converting files (gds specifically atm) to vector coordinates for the tip
 
 
 
-## Detector Object
-#
-#
-class Detector(object):
+customtkinter.set_appearance_mode("dark")  # Modes: system (default), light, dark
+customtkinter.set_default_color_theme("dark-blue")  # Themes: blue (default), dark-blue, green
 
 
-	## Initialise a new Detector
-	#
-	def __init__(self):
 
 
-		# parameters for the image cleaner
-		# this assumes the input is a topography in [nm]
-		self.spikeThreshold = 0.04
-		self.offsetThreshold = 0.06
-		self.tearHeightThreshold = 0.02
-		self.tearLengthThreshold = 10 # in px
-		self.tearGlue = 1 # px
+class PhysicalSizes(IntEnum):
+	i10nm = 10
+	i50nm = 50
+	i100nm = 100
+	i200nm = 200
+	i500nm = 500
+	i750nm = 750
+	i1um = 1000
+	i2um = 2000
+	i5um = 5000
+	i7um = 7500
+	i10um = 10000
+	i12um = 12000
+
+def resizing(frame, rows, columns, weight=1):
+	#function that takes in a list of rows and columns that should be dynamically resized as the window is resized
+	for i in rows:
+		frame.grid_rowconfigure(i, weight=1)
+	for i in columns:
+		frame.grid_columnconfigure(i, weight=1)
+
+
+class CanvasLine(object):
+
+	def __init__(self, name, points, **kwargs):
+
+		# params is a numpy matrix Nx2 physical space coordinates
+		# where N is the number of points
+		self.points = points
+		self.name = name
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
 		
-		# parameters for the step detector
-		self.margin = 10 # px
-		self.sizeMin = 150
-		self.eccMax = 0.85
+		last = None
+		for i in range(self.points.shape[0]):
+
+			# compute canvas px positions
+			q = canvas.physical_to_canvas(self.points[i])
+
+			# draw the line
+			if i > 0:
+				canvas.create_line(last[0], last[1], q[0], q[1], **self.options)
+
+			last = q
+
+class CanvasPoint(object):
+
+	def __init__(self, name, coords, pxsize, **kwargs):
+
+		self.name = name
+
+		self.coords = coords
+		self.pxsize = pxsize
+
+		self.options = kwargs
 
 
-		# parameter for pixel to real length conversion
-		self.pixel_to_real = 5e-6/512  # these come from the image in test.py. 512 pixels and 5um.
+	def render(self, canvas):
+
+		p = canvas.physical_to_canvas(self.coords)
+		canvas.create_oval(p[0]-self.pxsize, p[1]-self.pxsize, p[0]+self.pxsize, p[1]+self.pxsize, **self.options)
+
+class CanvasSPM(object):
+
+	def __init__(self, name, spm):
+
+		self.name = name
+		self.spm = spm
+		
+
+	def render(self, canvas):
+
+		spm = self.spm
+
+		# get the vertexes of this spm in canvas px coordinates
+		# ASSUMPTIONS (DEBUG!!!):
+		# 	angle is 0
+		# 	slow scan is from bottom to top (positive y axis in physical space)
+		# 	fast scan is in the positive x physical axis
 
 
+		# determine which part of the picture to draw
+		# these are the canvas corners in physical space
+		y0 = canvas.corners[3,1]
+		ym = canvas.corners[0,1]
+		x0 = canvas.corners[0,0]
+		xm = canvas.corners[1,0]
 
+		#print("canvas corners:",[x0,y0],[xm,ym])
 
-	# ### ADVANCED CLEANUP SYSTEM ### #########################################
+		# if both corners of an edge are on the same side of the canvas, the image is out
+		spm_x0 = spm.frame_corners[0,0]
+		spm_xm = spm.frame_corners[1,0]
 
-	## Clean up a raw image as best as we possibly can.
-	# Returns a data dictionary with many intermediate products.
-	#
-	def ImageCleanup(self, spm):
+		frame_x0 = numpy.max([x0,spm_x0])
+		frame_xm = numpy.min([xm,spm_xm])
 
-		if not isinstance(spm,SPM):
-			raise ValueError('argument is not an SPM object')
+		#print("frame x",frame_x0,frame_xm,x0,xm)
+
+		if frame_xm < x0 or frame_x0 > xm:
+			#print("spm is out of canvas (x)")
 			return None
 
-		src = spm.data
-
-		proc2D = self.AntiSlope2D(src)
-		#plt.matshow(proc2D)
-		#plt.colorbar()
-		#plt.savefig('proc2D.png')
-		# this works ok
-
-
-		despiked = self.DespikerOne(proc2D)
-		#plt.matshow(despiked["output"])
-		#plt.colorbar()
-		#plt.savefig('despiked.output.png')
-
-		#plt.matshow(despiked["spikemask"])
-		#plt.savefig('despiked.spikemask.png')
-		# this is also ok
-
-		#print("spikemask sum:",numpy.sum(despiked["spikemask"].flatten()))
-		#print("despiked sum:",numpy.sum(despiked["output"].flatten()))
-
-
-		salign = self.ScanAlign(despiked['output'])
-		#plt.matshow(salign["output"])
-		#plt.colorbar()
-		#plt.savefig('salign.output.png')
-
-		#print(salign['lineOffsets'])
-		#print("salign sum:",numpy.sum(salign["output"].flatten()))
-		# this is also ok
-
-
-		tears = self.TearMask(salign["output"])
-		#plt.matshow(tears["mask"])
-		#plt.savefig('tears.mask.png')
-		
-		#plt.matshow(tears["tearOffset"])
-		#plt.colorbar()
-		#plt.savefig('tears.tearOffset.png')
-
-		print("tearmask sum:",numpy.sum(tears["mask"].flatten()))
-
-
-		rough = salign["output"] - tears["tearOffset"];
-		#plt.matshow(rough)
-		#plt.colorbar()
-		#plt.savefig('rough.png')
-
-		creepinfo = self.Creeper(rough)
-		#print(creepinfo)
-
-		# now we can reconstruct the image
-		data = {}
-		data['input'] = proc2D
-
-		data["spikes"] = despiked["spikes"]
-		data["spikemask"] = despiked["spikemask"]
-		data["lineOffsets"] = salign["lineOffsets"]
-		data["tearOffset"] = tears["tearOffset"]
-		data["creepInfo"] = creepinfo
-
-		data["rough"] = rough
-		
-
-		self.RebuilderStage1(data)
-		#plt.matshow(data["output"])
-		#plt.colorbar()
-		#plt.savefig('data.build1.png')
-
-		self.RebuilderStage2(data)
-		#plt.matshow(data["output"])
-		#plt.colorbar()
-		#plt.savefig('data.build2.png')
-
-		self.RebuilderStage3(data)
-		#plt.matshow(data["output"])
-		#plt.colorbar()
-		#plt.savefig('data.build3.png')
-
-		self.RebuilderStage4(data)
-		#plt.matshow(data["output"])
-		#plt.colorbar()
-		#plt.savefig('data.build4.png')
-
-		return data
-
-
-	## Returns the src image without the fitting plane slope
-	# todo optimise the plane subtraction
-	def AntiSlope2D(self, src):
-
-		nrows = src.shape[0]
-		ncols = src.shape[1]
-
-		# do a plane fitting
-		A = []
-		b = []
-		for i in range(nrows):
-			for j in range(ncols):
-				A.append([i,j,1.0])
-				b.append(src[i,j])
-
-		A = numpy.matrix(A)
-		b = numpy.matrix(b).T
-
-		fit = (A.T * A).I * A.T * b
-		errors = b - A * fit
-		residual = numpy.linalg.norm(errors)	
-
-		print("fitting plane: %f x + %f y + %f = z" % (fit[0], fit[1], fit[2]))
-
-		result = numpy.zeros(src.shape)
-
-		for i in range(nrows):
-			for j in range(ncols):
-				result[i,j] = src[i,j] - (fit[0]*i + fit[1]*j + fit[2])
-		print("desloping done")
-
-		return result
-
-	def DespikerOne(self, proc2D):
-
-		ethr = self.spikeThreshold
-
-		nrows = proc2D.shape[0]
-
-		spkmask = proc2D*0
-		proc = proc2D*0
-		spikes = []
-
-		for li in range(nrows): # loop over scan lines
-
-			line0 = proc2D[li]
-
-			# find all possible spike peaks where at least one side spikes more than thr
-			events = []
-
-			for ii in range(1, len(line0)-1):
-				deltan = line0[ii] - line0[ii - 1]
-				deltap = line0[ii] - line0[ii + 1]
-				condition = (deltan > 0) and (deltap > 0)
-				condition = condition and ((deltan > ethr/2) or (deltap > ethr/2));
-				if condition: events.append([0, ii, 0])
-			# end for
-
-			# calculate the overall left and right fall for each event
-			for i in range(len(events)):
-
-				i0 = events[i][1]
-				for j in range(i0 + 1, len(line0)): # right side
-					delta = line0[i0] - line0[j]
-					if delta <= 0:
-						events[i][2] = i0
-						break
-
-					if j==len(line0)-1:
-						events[i][2] = len(line0)-1
-						break
-					i0+=1
-				# end of for
-
-				i0 = events[i][1];
-				for j in range(i0-1, -1, -1): # left side
-					delta = line0[i0] - line0[j]
-					if delta <= 0:
-						events[i][0] = i0
-						break
-					if j==0:
-						events[i][0] = 0
-						break
-					i0-=1
-			
-			
-			# filter events where both left and right falls are above threshold
-			deltap = [line0[e[1]] - line0[e[0]] for e in events]
-			deltan = [line0[e[1]] - line0[e[2]] for e in events]
-			deltas = [ [deltap[i], events[i], deltan[i]] for i in range(len(events))]
-			lineevents = [ events[i] for i in range(len(events)) if deltap[i] > ethr and deltan[i] > ethr ]
-
-			#deltas = Select[deltas, #[[1]] > ethr && #[[3]] > ethr &];
-			#lineevents = events = deltas[[All, 2]];
-			spikes.append(lineevents)
-			
-
-			# interpolate in the event regions
-			lineOut = line0;
-			for e in lineevents:
-				i0 = e[0]
-				i1 = e[2]
-				for i in range(i0+1, i1-1+1):
-					t = (i - i0)/(i1 - i0)
-					lineOut[i] = line0[i0]*(1 - t) + line0[i1]*t
-					spkmask[li, i] = 1
-				# end of loop over points {i, i0 + 1, i1 - 1}];
-			# end of loop over events
-			proc[li] = lineOut
-			#print(li, numpy.sum(spkmask[li]))
-		# end of loop over lines , {li, Length[proc2D]}];
-		
-		return {'spikemask': spkmask, 'output': proc, 'spikes': spikes}
-
-	def DespikerOneLiner(self, proc2D, ethr):
-
-		spkmask = proc2D*0
-		nrows = proc2D.shape[0]
-
-		for li in range(nrows): # loop over scan lines
-
-			line0 = proc2D[li] 
-			deltas = numpy.abs(line0[1:] - line0[0:-1])
-
-			# find all possible spike peaks where at least one side spikes more than thr
-			events = []
-			for ii in range(1, line0.shape[0]-1):
-				deltan = line0[ii] - line0[ii - 1];
-				deltap = line0[ii] - line0[ii + 1];
-				condition = (deltan > 0) and (deltap > 0)
-				condition = condition and ((deltan > ethr) and (deltap > ethr));
-				if condition: events.append([0,ii,0])
-			
-
-			# set mask in the event regions
-			for e in events: spkmask[li, e[1]] = 1
-			
-		# end of loop
-
-		return {'mask': spkmask, 'events': events}
-
-	def ScanAlign(self, image):
-
-		tmp = image*1
-		nrows = image.shape[0]
-		ncols = image.shape[1]
-		thr = self.offsetThreshold
-
-
-		lineOffsets = [0 for i in range(nrows)]
-
-		for i in range(1, nrows):
-			
-			delta = tmp[i] - tmp[i - 1]
-			idx = [n for n in range(ncols) if numpy.abs(delta[n]) < thr]
-			offset = 0
-
-			if len(idx) < 0.5*nrows:
-				#print('if true for ',i)
-				displ = [0,0]
-				stp = 0.002
-				for l in numpy.arange(-0.16, 0.16+stp, stp):
-					di = [n for n in range(ncols) if numpy.abs(delta[n] + l) < thr]
-					if len(di) > displ[1]:
-						displ = [l, len(di)]
-
-				displ = displ[0] # get the offset
-				delta += displ
-				idx = [n for n in range(ncols) if numpy.abs(delta[n]) < thr]
-				offset -= displ
-			
-			if len(idx) == 0: continue
-			
-			offset += numpy.mean(delta[idx])
-			if numpy.abs(offset) > 0.005:
-				tmp[i:] -= offset
-				lineOffsets[i:] -= offset
-			
-		# end of loop over rows
-
-		return {"output": tmp, "lineOffsets": lineOffsets}
-		
-	def TearMask(self, src):
-
-		nrows = src.shape[0]
-
-		despikeV = self.DespikerOneLiner(numpy.transpose(src), self.tearHeightThreshold)
-		spkmaskV = despikeV['mask']
-		tmp = despikeV['events']
-
-		#print("despikeV sum:",numpy.sum(spkmaskV.flatten()))
-
-		spkmaskV = numpy.transpose(spkmaskV).astype(numpy.int32)
-		mask = src*0
-		maskOffset = src*0
-
-
-		for li in range(0, nrows):
-
-			ml = spkmaskV[li]
-			
-			# remove single pixel spikes *)
-			for ig in range(1, self.tearGlue+1):
-				for j in range(ml.shape[0]-ig):
-					
-					seg = ml[j : j + ig+1]
-					if seg[0] != seg[-1]: continue
-					if seg[0] == seg[1]: continue
-
-					unique = Set(seg[1:-1])
-					if len(unique) != 1: continue
-					
-					#print("tagged",li,j,j + ig + 1,seg[0])
-					ml[j : j + ig + 1] = seg[0]
-
-			
-			# find segments that are long enough
-			segments = []; s = 0; seg = [0, 0];
-			for i in range(0, ml.shape[0]):
-				if ml[i] == 1 and s == 0:
-					s = 1
-					seg[0] = i
-					#print("on",li,i)
-					continue
-
-				if ml[i] == 0 and s == 1:
-					s = 0
-					seg[1] = i - 1
-					segments.append([seg[0],seg[1]])
-					#print("off",li,i-1)
-					continue
-			
-			#if li == 70: print(segments)
-
-			#tmpsegs = []
-			#for s in segments:
-			#	if s[1]-s[0] > self.tearLengthThreshold:
-			#		tmpsegs.append(s)
-			#segments = tmpsegs
-			segments = [s for s in segments if s[1]-s[0] > self.tearLengthThreshold]
-			#if len(segments) > 0: print(li,len(segments))
-
-			if li > 0 and li < nrows-1:
-				for s in segments:
-					prevl = src[li - 1, s[0] : s[1]+1]
-					nextl = src[li + 1, s[0] : s[1]+1]
-					nextl = 0.5*(prevl + nextl)
-					prevl = src[li, s[0] : s[1]+1] - nextl
-					prevl = numpy.mean(prevl)
-					mask[li, s[0] : s[1]+1] = 1
-					maskOffset[li, s[0] : s[1]+1] = prevl
-				
-			
-		# end of loop over lines
-		return {'mask': mask, 'tearOffset': maskOffset}
-
-	def Creeper(self, rough):
-
-		nrows = rough.shape[0]
-		thr = self.offsetThreshold
-
-		creeplines = [] # check for piezo creep lines
-		for i in range(0, nrows):
-			
-			deltas = [1, 1]
-			if i != 1: deltas[0] = numpy.mean(numpy.abs(rough[i] - rough[i - 1]))
-			if i != nrows-1: deltas[1] = numpy.mean(numpy.abs(rough[i] - rough[i + 1]))
-			if (deltas[0] > thr) and (deltas[1] > thr): creeplines.append(i)
-
-
-		# creep lines should be contiguous!
-		adjacent = True
-		edge = True
-
-		if len(creeplines) > 0:
-			
-			for i in range(1, len(creeplines)):
-				adjacent = adjacent and (creeplines[i] == creeplines[i - 1] + 1)
-			
-			edge = (creeplines[0] == 0) or (creeplines[-1] == nrows-1)
-		
-		if not adjacent: print("Creep lines are not adjacent!")
-		if not edge: print("Creep lines are not at the edge of the image!")
-
-		return [creeplines, adjacent, edge]
-
-
-
-	def RebuilderStage1(self, data):
-
-		rebuilt = data["input"]
-		ci = data["creepInfo"]
-
-		nrows = rebuilt.shape[0]
-
-		# realign the scanlines using the estimated offsets 
-		for i in range(nrows): rebuilt[i] += data["lineOffsets"][i]
-		rebuilt -= data["tearOffset"]; # recover from tip changes
-		data['output'] = rebuilt
-
-
-		if ci[1] and ci[2]: # cood creepinfo
-
-			idx = [i for i in range(nrows) if not (i in ci[0])]
-
-			data["input"] = data["input"][idx]
-			data["rough"] = data["rough"][idx]
-			data["output"] = data["output"][idx]
-			data["spikemask"] = data["spikemask"][idx]
-			data["spikes"] = [data['spikes'][i] for i in idx]
-
-			if len(ci[0]) > 0:
-				if ci[0][0] == 0: 
-					data["x0"] = [ci[0][0], 0]
-		
-	def RebuilderStage2(self, data):
-		
-		recmask = data["spikemask"]
-		spikes = data["spikes"]
-		rebuilt = data["output"]
-
-		nrows = rebuilt.shape[0]
-
-		# spikes in the first/last line are recovered with simple linear interpolation along the line
-		for li in range(nrows):
-			lineOut = rebuilt[li];
-			
-			for e in spikes[li]: 
-				i0 = e[0]; i1 = e[2];
-			
-				for i in range(i0+1, i1-1+1):
-					t = (i - i0)/(i1 - i0)
-					lineOut[i] = lineOut[i0]*(1 - t) + lineOut[i1]*t
-			
-
-			rebuilt[li] = lineOut;
-		
-		recmask[0] *= 0;
-		recmask[-1] *= 0;
-
-		# spikes in the first/last column are recovered with simple linear interpolation
-		# there cannot be any!
-
-		data["recmask"] = recmask
-		data["output"] = rebuilt
-		
-	def RebuilderStage3(self, data):
-		
-		recmask = data["recmask"]
-		rebuilt = data["output"]
-
-		nrows = rebuilt.shape[0]
-		ncols = rebuilt.shape[1]
-
-		fixed = 1
-
-		while fixed != 0:
-			
-			# all isolated spikes can be interpolated using neighbour lines
-
-			fixed = 0
-			for i in range(1,nrows-1):
-				for j in range(ncols):
-
-					if (recmask[i - 1, j] == 0) and (recmask[i + 1, j] == 0) and (recmask[i, j] == 1):
-						rebuilt[i, j] = 0.5*(rebuilt[i - 1, j] + rebuilt[i + 1, j])
-						recmask[i, j] = 0
-						fixed += 1
-			
-			fixed = 0
-			
-			# now we can process single points along scanlines
-			for i in range(nrows):
-				for j in range(1,ncols-1):
-					if (recmask[i, j - 1] == 0) and (recmask[i, j + 1] == 0) and (recmask[i, j] == 1):
-						rebuilt[i, j] = 0.5*(rebuilt[i, j - 1] + rebuilt[i, j + 1])
-						recmask[i, j] = 0
-						fixed += 1
-		
-		# end of while loop
-
-		data["recmask"] = recmask
-		data["output"] = rebuilt
-
-	def RebuilderStage4(self, data): 
-
-		recmask = data["recmask"]
-		rebuilt = data["output"]
-
-		nrows = rebuilt.shape[0]
-		ncols = rebuilt.shape[1]
-
-
-		for i in range(1,nrows-1):
-			for j in range(1, ncols-1):
-
-				if recmask[i, j] == 0: continue
-
-				interp = [[False, False], [False, False]]
-
-				j1 = -1
-				for j1 in range(j + 1, ncols):
-					if recmask[i, j1] == 0: 
-						interp[0][1] = True
-						break
-				
-				j0 = -1
-				for j0 in range(j - 1, -1, -1):
-					if recmask[i, j0] == 0:
-						interp[0][0] = True
-						break
-				
-				i1 = -1
-				for i1 in range(i + 1, nrows):
-					if recmask[i1, j] == 0:
-						interp[1][1] = True
-						break
-				
-				i0 = -1
-				for i0 in range(i - 1, -1, -1):
-					if recmask[i0, j] == 0:
-						interp[1][0] = True
-						break
-
-				deltai = i1 - i0
-				deltaj = j1 - j0
-				interp[0] = interp[0][0] and interp[0][1]
-				interp[1] = interp[1][0] and interp[1][1]
-
-				if interp[0] and (deltai < deltaj):
-					# interpolate along line
-					for jj in range(j0+1, j1-1+1):
-						t = (jj - j0)/(j1 - j0)
-						rebuilt[i, jj] = rebuilt[i, j0]*(1 - t) + rebuilt[i, j1]*t
-						recmask[i, jj] = 0
-
-					continue
-
-				if interp[1] and (deltaj <= deltai):
-					# interpolate across lines
-					for ii in range(i0+1, i1-1+1):
-						t = (ii - i0)/(i1 - i0);
-						rebuilt[ii, j] = rebuilt[i0, j]*(1 - t) + rebuilt[i1, j]*t
-						recmask[ii, j] = 0
-
-					continue
-
-
-		data["recmask"] = recmask
-		data["output"] = rebuilt
-
-	# #########################################################################
-	# ### MEDIUM SCALE IMAGES #################################################
-
-
-	def Mesoscale_line_peakfind(line, stepthr=0.07, stepminheight=0.1):
-
-
-		state = 0
-		slst = 0
-		delta = 0
-		steps = []
-		peakheads = []
-
-		for i in range(1, len(line)): # loop over pixels
-
-			if state == 0:
-
-				slst = i-1
-				if line[i] > line[i-1]:
-					state = 1
-				else:
-					state = -1
-
-				continue
-
-			if state == 1 and line[i]<line[i-1]: # trend was going up and it stopped
-
-				# did it go up enough to make a step?
-				delta = line[i-1]-line[slst]
-
-				if numpy.abs(delta) > stepthr:
-					steps.append([slst, i-1, delta, int(numpy.round(delta/stepminheight))])
-
-				peakheads.append([i-1,1])
-				state = 0
-			
-			if state==-1 and line[i]>line[i-1]: # trend was going down and it stopped
-
-				# did it go down enough to make a step
-				delta = line[i-1] - line[slst]
-				
-				if numpy.abs(delta) > stepthr:
-
-					steps.append([slst, i-1, delta, int(numpy.round(delta/stepminheight))])
-
-				peakheads.append([i-1,-1])
-				state = 0
-		# end of loop over pixels
-
-		if peakheads[0][0] != 1:
-			peakheads.insert(0, [0, -peakheads[0][1]])
-
-		if peakheads[-1][0] != len(line):
-			peakheads.append([len(line)-1, -peakheads[-1][1]])
-
-		#steps = numpy.asarray(steps)
-		peakheads = numpy.asarray(peakheads)
-		
-		#print(steps)
-		#print(peakheads)
-
-		peaks = []
-		for i in range(1,peakheads.shape[0]-1):
-			
-			if numpy.abs(line[peakheads[i, 0]] - line[peakheads[i + 1, 0]]) > 0.04: peaks.append((peakheads[i-1,0],peakheads[i,0],peakheads[i+1,0]))
-			if numpy.abs(line[peakheads[i, 0]] - line[peakheads[i - 1, 0]]) > 0.04: peaks.append((peakheads[i-1,0],peakheads[i,0],peakheads[i+1,0]))
-			
-		peaks = list(dict.fromkeys(peaks)) # delete duplicates
-		#print(peaks)
-
-		return peaks, steps
-
-
-	def Mesoscale_line_terracedivide(line, peaks, steps):
-
-		start = 0
-
-		tmp = [[i,line[i]] for i in range(len(line))]
-		tmp = numpy.asarray(tmp)
-		mask = numpy.zeros(len(line)) + 1
-
-		# also take out the spikes first
-		for b in peaks: mask[b[0] : b[2]] = -1
-
-		terraces = []
-
-		# split terraces
-		for s in steps:
-
-			tmp2 = tmp[start : s[0]]
-			tmp3 = tmp2[mask[start : s[0]] > 0]
-
-			start = s[1]
-			
-			terraces.append(numpy.asarray(tmp3))
-		
-		if  start < len(line):
-			tmp2 = tmp[start:]
-			tmp3 = tmp2[mask[start:] > 0]
-			terraces.append(numpy.asarray(tmp3))
-		
-		tmp = [x for x in terraces if len(x) > 0]
-		terraces = tmp
-		#terraces = numpy.asarray(terraces)
+		spm_y0 = spm.frame_corners[0,1]
+		spm_ym = spm.frame_corners[2,1]
+
+		frame_y0 = numpy.max([y0,spm_y0])
+		frame_ym = numpy.min([ym,spm_ym])
+
+		if frame_ym < y0 or frame_y0 > ym:
+			#print("spm is out of canvas (y)")
+			return None
+
+		# code here => there is some overlap between spm and canvas
+		#print("frame boundaries on spm (x):",[spm_x0,frame_x0],[spm_xm,frame_xm])
+		#print("frame boundaries on spm (y):",[spm_y0,frame_y0],[spm_ym,frame_ym])
+
+
+
+		# convert height values to color
+		# this can make the topography contrast go away quite a bit
+		data = spm.data - canvas.SPM_min # also applies the shift
+		data /= canvas.SPM_max/1.5
+		data *= 255
+
+		# final conversion to bytes and flip vertically
+		data = data.astype(numpy.uint8)
+		data = numpy.flip(data, axis=0)
+
+		# create the PIL image object from data
+		pic = Image.fromarray(data)
+		rot = pic.rotate(spm.angle, expand=True)
+		# make a rotation mask
+		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
+		mask += 255
+		mask = Image.fromarray(mask)
+		mask = mask.rotate(spm.angle, expand=True)
+
+		# this is completely white-transparent image to blend with rot using mask
+		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
+		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
+		bgim = Image.fromarray(bgim, mode="RGBA")
+		bgim = bgim.rotate(spm.angle, expand=True)
+
+		rotm = Image.composite(rot, bgim, mask)
+
+		# crop the image
+		# where is frame_x0 in spm pixel coordinates?
+		frame_px_x0 = int(numpy.floor((frame_x0 - spm_x0) / spm.pixelSize[0]))
+		frame_px_xm = int(numpy.ceil((frame_xm-spm_x0) / spm.pixelSize[0]))
+		if frame_px_xm == 0: frame_px_xm = 1
+
+		#print("frame pixel coords (x)",frame_px_x0,frame_px_xm)
+		#data = data[:,frame_px_x0:frame_px_xm+1]
+
+		frame_px_y0 = int(numpy.floor((frame_y0 - spm_y0) / spm.pixelSize[1]))
+		frame_px_ym = int(numpy.ceil((frame_ym-spm_y0) / spm.pixelSize[1]))
+		if frame_px_ym == 0: frame_px_ym = 1
+
+		#print("frame pixel coords (y)",frame_px_y0,frame_px_ym)
+		#data = data[frame_px_y0:frame_px_ym+1]
+
+		#print("data stats",numpy.mean(spm.data),numpy.min(spm.data),numpy.max(spm.data))
+
+		# perform the crop
+		cropbox = (frame_px_x0, rotm.size[1]-frame_px_ym, frame_px_xm, rotm.size[1]-frame_px_y0)
+		#print("cropping",rotm.size, cropbox)
+		pic = rotm.crop(cropbox)
 		
 
-		return terraces
+		# resample to match canvas resolution
+
+		# we have to make the spm pixels the same size as the canvas pixels
+		# canvas pixel size is 1 / self.canvas_res
+		# spm pixel size is spm.pixelSize (x,y components)
+
+		trgPXsize = numpy.asarray([1,1]) / canvas.resolution
+		curPXsize = spm.pixelSize
+		scaling = curPXsize / trgPXsize
+		newsize = numpy.ceil(numpy.asarray([pic.size[0],pic.size[1]]) * scaling)
+		newsize = newsize.astype(numpy.uint32)
+		method = Image.Resampling.BICUBIC
+		if scaling[0] < 1 and scaling[1] < 1:
+			method = Image.Resampling.LANCZOS
+		#print(trgPXsize,curPXsize,scaling,"--",pic.size, newsize)
+
+		pic = pic.resize(newsize, resample=method)
+		tkpic = ImageTk.PhotoImage(image=pic)
+
+		self._crop = tkpic
+
+		p = numpy.asarray([frame_x0, frame_y0], dtype=numpy.float64)
+		c = canvas.physical_to_canvas(p)
+		#print("canvas placement:",p,c)
+		canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
+		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
 		
+class CanvasCrossHair(object):
+
+	def __init__(self, name, position, **kwargs):
+
+		self.name = name
+
+		# in physical space
+		self.position = position
+
+		self.options = kwargs
+
+
+	def render(self, canvas):
+
+		tip = self.position
+		ctip = canvas.physical_to_canvas(tip)
+		
+		canvas.create_line(ctip[0], ctip[1]-8, ctip[0], ctip[1]-2, **self.options)
+		canvas.create_line(ctip[0], ctip[1]+8, ctip[0], ctip[1]+2, **self.options)
+
+		canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], **self.options)
+		canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], **self.options)
+
+
+class PhysicalCanvas(tk.Canvas):
+
+
+
+
+	def __init__(self, parent, **kwargs):
+
+		tk.Canvas.__init__(self, parent, **kwargs)
+		self.configure(**kwargs)
+
+		self.parent = parent
+
+		# center of the canvas in physical space
+		self.center = numpy.asarray([0,0], dtype=numpy.float64)
+
+		# canvas resolution in px/nm
+		self.resolution = 128
+		
+		# canvas widget size in pixels - will be set by resize
+		self.size = numpy.zeros(2, dtype=numpy.int32)
+
+		# canvas corner positions in physical space - order is ABCD clockwise A = top-left = canvas 0,0
+		self.corners = numpy.zeros((4,2), dtype=numpy.float64)
+
+
+		self._axisflipper = numpy.asarray([1,-1], dtype=numpy.float64)
+
+
+		self._stackPoints = []
+		self._stackLines = []
+		self._stackSPM = []
+
+		self.hasFocus = False
+
+
+		self.variables = {
+
+			'resolution': 	{"object": tk.StringVar(value="..."), "value": None},
+			'mousepos': 	{"object": tk.StringVar(value="..."), "value": None}
+		}
+
+
+		self.callbacks = {
+			'click': [],
+
+		}
+
+
+		#self.bind("<FocusOut>", self.lose_focus)
+		self.bind("<1>", self._onclick)
+
+		self.bind("<Configure>", self._resize)
+		self.bind('<Motion>', self._onMouseMove)
+		self.bind('<Leave>', self._onMouseOut)
+
+		self.bind("<q>", lambda e: self.zoom(True))
+		self.bind("<e>", lambda e: self.zoom(False))
+
+		self.bind("<w>", lambda e: self.move([0,-1]))
+		self.bind("<a>", lambda e: self.move([-1,0]))
+		self.bind("<s>", lambda e: self.move([0,1]))
+		self.bind("<d>", lambda e: self.move([1,0]))
+
+
+	### FOCUS EVENTS ### ##############################################
+
+	def _onclick(self, event):
+
+		self.give_focus()
+		#print("canvas click")
+
+		for cb in self.callbacks['click']:
+			cb(event)
+
+		self._onMouseMove(event)
+
+	def give_focus(self):
+		#print(self,"get focus")
+		self.hasFocus = True
+		self.focus_set()
+		self.configure(background="white")
+
+	def lose_focus(self):
+		#print(self,"lost focus")
+		self.hasFocus = False
+		self.configure(background="gray")
+
+	def _onMouseMove(self, event):
+		
+		x, y = event.x, event.y
+		c = numpy.asarray([x,y])
+		p = self.canvas_to_physical(c)
+
+		self.variables['mousepos']['value'] = p
+
+		magn0, units0, dummy = self.physical_to_approximate(p[0],3)
+		magn1, units1, dummy = self.physical_to_approximate(p[1],3)
+
+		self.variables['mousepos']['object'].set(
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(magn0,units0, magn1,units1)
+		)
+
+
+	def _onMouseOut(self, event):
+
+		self.variables['mousepos']['object'].set("N/A")
+		self.variables['mousepos']['value'] = None
+
+	###################################################################
+
+	### CANVAS CONTROLS ### ###########################################
+
+	def zoom(self, inc=False):
+
+		if inc:
+			if self.resolution < 512:
+				self.resolution *= 2
+				self._resize(None)
+		else:
+			if self.resolution > 5.0e-07:
+				self.resolution /= 2
+				self._resize(None)
+
+
+	def move(self, direction):
+
+		step = 0.1 * self.size / self.resolution
+		self.center += numpy.asarray(direction) * self._axisflipper * step
+		self._resize(None)
+		
+
+	###################################################################
+
+	### POSITIONING ### ###############################################
+
+	## set the physical space center of the canvas and the resolution (if given)
+	def setSpace(self, center=None, resolution=None):
+
+		upd = False
+
+		if center is not None:
+			self.center = numpy.asarray(center, dtype=numpy.float64)
+			upd = True
+
+		if resolution:
+			self.resolution = resolution
+			upd = True
+
+
+		if upd:
+			self._resize(None)
+
+
+	## converts coordinates from physical space into canvas pixel space
+	def physical_to_canvas(self, point):
+
+		v = self.size * 0.5
+		v += self._axisflipper * (point - self.center) * self.resolution
+		return v
+
+	## converts coordinates from pixel space into physical space
+	def canvas_to_physical(self, pxpoint):
+
+		v = self._axisflipper * pxpoint
+		v-= self._axisflipper * self.size*0.5
+		v/= self.resolution
+		v+= self.center
+
+		return v
+
+	def physical_to_approximate(self, length, decimals=0):
+
+		# the input length must be in nm
+
+		# round the nm size to a convenient number
+		units = "nm"
+		magn = length
+		magn_nm = length
+
+		rounder = numpy.power(10,decimals)
+		prefix = 1
+
+		if numpy.abs(length) > 1000000:
+			
+			units = "mm" # units become um
+			magn /= 1000000
+			prefix = 1000000
+		
+		elif numpy.abs(length) > 1000:
+			
+			units = "μm" # units become um
+			magn /= 1000
+			prefix = 1000
+
+		elif numpy.abs(length) < 0.1:
+
+			units = "pm" # units become pico
+			prefix = 0.001
+			magn *= 1000
+
+		elif numpy.abs(length) < 1:
+
+			units = "Å" # units become angs
+			prefix = 0.1
+			magn *= 10
+
+
+		else:
+			
+			units = "nm"
+			prefix = 1
+			
+		# rounds to the requested decimal
+		magn = numpy.round(magn*rounder) / rounder
+		magn_nm = magn*prefix
+
+		return magn, units, magn_nm
+
+	###################################################################
+
+
+
+
+
+	def _compute_corners(self):
+
+		# get the widget shape
+		self.size[0] = self.winfo_width()
+		self.size[1] = self.winfo_height()
+
+		# compute the canvas corner positions in physical space
+		p = numpy.zeros(2)
+		self.corners[0] = self.canvas_to_physical(p)
+		p[0] = self.size[0]
+		self.corners[1] = self.canvas_to_physical(p)
+		p[1] = self.size[1]
+		self.corners[2] = self.canvas_to_physical(p)
+		p[0] = 0
+		self.corners[3] = self.canvas_to_physical(p)
+
+
+	def _resize(self, event):
+
+		self._compute_corners()
+		
+		# set resolution variable
+		self.variables['resolution']['value'] = self.resolution
+		if self.resolution >= 1:
+			self.variables['resolution']['object'].set("{} px/nm".format(self.resolution))
+		else:
+			self.variables['resolution']['object'].set("{}⁻¹ px/nm".format(1.0/self.resolution))
+
+		self.render()
+
+
+
+
+	def ClearStack(self):
+
+		self._stackPoints = []
+		self._stackLines = []
+		self._stackSPM = []
+		self.render()
+
+	def AddObject(self, cobj, noRender=False):
+
+		if isinstance(cobj, CanvasPoint):
+			self._stackPoints.append(cobj)
+		elif isinstance(cobj, CanvasLine) or isinstance(cobj, CanvasCrossHair):
+			self._stackLines.append(cobj)
+		elif isinstance(cobj, CanvasSPM):
+			self._stackSPM.append(cobj)
+		else:
+			raise TypeError("Invalid canvas object")
+
+
+		if not noRender:
+			self.render()
+
+	def RemoveObject(self, name, noRender=False):
+
+		self._stackPoints = [o for o in self._stackPoints if o.name != name]
+		self._stackLines = [o for o in self._stackLines if o.name != name]
+		self._stackSPM = [o for o in self._stackSPM if o.name != name]
+
+		if not noRender:
+			self.render()
+
+
+
+	def _draw_scalebar(self):
+
+		cw = self.size[0]
+		ch = self.size[1]
+
+		barheight = 20
+
+
+		barsize_px = 0.1 * cw # bar size in pixels - how many nm is that?
+		barsize_nm = barsize_px / self.resolution # size in nm -> round it
+
+		# round the nm size to a convenient number
+		units = "nm"
+		magn = 0
+
+		magn, units, barsize_nm = self.physical_to_approximate(barsize_nm, 0)
+
+		# then get the fixed pixel count
+		barsize_px = numpy.round(barsize_nm * self.resolution)
+		bartxt = "{} {}".format(magn, units)
+
+		
+		self.create_rectangle(cw-20-barsize_px, ch-20-barheight, cw-20, ch-20, fill="black",outline="white", width=2)
+		self.create_rectangle(cw-20-2*barsize_px, ch-20-barheight+2, cw-20-barsize_px, ch-20-2, fill="white",outline="black", width=2)
+		self.create_text(cw-20-barsize_px/2, ch-20-barheight/2, justify=tk.CENTER, text=bartxt, fill="white")
+
+
+
+
+
+	def render(self):
+
+		self.delete("all")
+
+
+		# first render the SPMs
+
+		# get the global min/max
+		imgmin = float("inf")
+		imgmax = float("-inf")
+		for spmobj in self._stackSPM:
+			spm = spmobj.spm
+			m = numpy.min(spm.data)
+			imgmin = min(m, imgmin)
+
+			m = numpy.max(spm.data)
+			imgmax = max(m, imgmax)
+
+		self.SPM_min = imgmin
+		self.SPM_max = imgmax
+
+		# sort images by resolution - low res images are drawn first
+		scans = sorted(self._stackSPM, key=lambda x: x.spm.pixelSize[0], reverse=True)
+		
+
+		for o in scans: o.render(self)
+
+
+		# then the lines
+		for o in self._stackLines: o.render(self)
+
+		# last the points
+		for o in self._stackPoints: o.render(self)
+
+
+
+		# add the scale bar
+		self._draw_scalebar()
+
+
+
+# this is the main window which contains the different tabs and controls which is being seen
+class ALANNGUI(customtkinter.CTk):
+
+
+	def __init__(self, *args, **kwargs):
+
+		customtkinter.CTk.__init__(self, *args, **kwargs)
+		self.geometry("1200x800")
+		self.title('ALANN')
+
+		# this is the main container
+		container = customtkinter.CTkFrame(self)
+		container.pack(side="top", fill="both", expand=True)
+		#container.grid(row=0, column=0, sticky="nsew")
+		
+		# what does this do?
+		resizing(container, [1], [0])
+
+		# vertical side menu that allows navigation to different tabs
+		menu = customtkinter.CTkFrame(container)
+		menu.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+
+
+		self.menu_width=90
+
+		self.tabInfo = {
+			'nav':{
+				'class': 'TabHome',
+				'name': 'Navigation',
+				'button': None,
+				'frame': None
+			},
+			'path':{
+				'class': 'TabLithoPath',
+				'name': 'Pathing',
+			}
+		}
+
+		# create the tabs and tab selector buttons
+		col = 0
+		for tn in self.tabInfo.keys():
+			
+			tab = self.tabInfo[tn]
+			cmd = lambda tn=tn: self.tab_show(tn)
+
+
+			tab['button'] = customtkinter.CTkButton(menu, text=tab['name'], command=cmd, width=self.menu_width, text_color_disabled="black")
+			tab['button'].grid(row=0, column=col, padx=2, pady=2)
+			tab['button'].configure(fg_color="#4682bd")
+
+			frame = globals()[tab['class']](container, self)
+			frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+			tab['frame'] = frame
+
+			col += 1
+
+		self.tab_show('nav')
+
+
+	def tab_show(self, tabname):
+
+		# brings forward the frame of the tab you want to see
+		tab = self.tabInfo[tabname]
+
+		for tn in self.tabInfo.keys():
+			if tn != tab['class']:
+				self.tabInfo[tn]['button'].configure(fg_color="#4682bd", state=tk.NORMAL)
+				if self.tabInfo[tn]['frame'].canvas:
+					self.tabInfo[tn]['frame'].canvas.lose_focus()
+
+		tab['button'].configure(fg_color="#46bd64", state=tk.DISABLED)
+		tab['frame'].tkraise()
+		if tab['frame'].canvas:
+			tab['frame'].canvas.give_focus()
+
+
+
+
+
+# this is the main navigation/scanning panel of the GUI
+class TabHome(customtkinter.CTkFrame):
 	
-	def Mesoscale_line_goodsteps(line, terraces, steps, stepthr=0.09, stepPhysSize=0.12):
+	# max image size is 12 μm
+	# more values in between are needed
+	# 1200nm 4.5um ...
 
-		tstarts = [t[0,0] for t in terraces]
-		tends = [t[-1,0] for t in terraces]
-		goodsteps = numpy.zeros(len(steps))
 
-		for i in range(len(steps)):
+	def __init__(self, parent, controller):	
+		
+		customtkinter.CTkFrame.__init__(self, parent)
+		
+		self.alanngui = controller
+		self._scans = []
+	
+		self.variables = {
+			'tippos': {'object': tk.StringVar(value="..."), 'value': numpy.asarray([0,0], dtype=numpy.float64)},
+		}
 
-			# find the terrace before this step
-			t1 = [t for t in terraces if t[-1,0] <= steps[i][0]]
-			if len(t1) == 0:
-				continue
+		self.grid_rowconfigure(0, weight=1)
+		self.grid_columnconfigure(0, weight=0, minsize=400)
+		self.grid_columnconfigure(1, weight=2, minsize=400)
+
+
+
+		# and this is the map panel - for the canvas
+		frame_map = customtkinter.CTkFrame(master=self, corner_radius=4)
+		frame_map.grid(row=0, column=1, padx=4, pady=4, sticky="nsew")
+
+		frame_map.grid_columnconfigure(0, weight=2)
+		frame_map.grid_rowconfigure(0, weight=2)
+
+		# canvas - this has to go first
+		canvas = PhysicalCanvas(frame_map, background="white")
+		canvas.grid(row=0, column=0,padx=4,pady=4, sticky="nsew")
+		self.canvas = canvas
+
+
+
+		# this should be the main control bar on the left
+		frame_ctrl = customtkinter.CTkFrame(master=self, width=250, corner_radius=4)
+		frame_ctrl.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+		#frame_ctrl.grid_propagate(False)
+		self.frame_ctrl = frame_ctrl
+
+		customtkinter.CTkLabel(master=frame_ctrl,text="Navigation & Mapping", text_font = ("Roboto",14)).grid(row=0, column=0, pady=4)
+
+		frm_scan = self._init_scan_panel(frame_ctrl)
+		frm_scan.grid(row=1, column=0, pady=4, padx=4,sticky="new")
+		
+
+
+
+		# canvas navigation panel
+		frame_map_ctrl = self._init_nav_panel(frame_ctrl)
+		frame_map_ctrl.grid(row=2, column=0, padx=4, pady=4, sticky="new")
+
+		canvas.callbacks['click'].append(self.MoveTip)
+		#canvas.bind("<Button-1>", self.canvas_onclick)
+
+
+		# start with tip in 0,0
+		# this is a crosshair object
+		self.crosshair = CanvasCrossHair("tippos", self.variables['tippos']['value'], fill='red')
+		canvas.AddObject(self.crosshair, noRender=True)
+
+		self._onTipPosChange([0,0])
+
+
+
+	### SUB PANELS ### ########################################
+
+	def _init_scan_panel(self, mainframe):
+
+		frm_scan = customtkinter.CTkFrame(master=mainframe,corner_radius=4)
+
+		# title label
+		customtkinter.CTkLabel(master=frm_scan,text="Imaging Parameters").grid(row=0, column=0, columnspan=3)
+		nrow = 1
+
+		# image px size panel
+
+		customtkinter.CTkLabel(master=frm_scan,text="pixels:").grid(row=nrow, column=0)
+
+		sld_px = customtkinter.CTkSlider(master=frm_scan, from_=6, to=11, number_of_steps=5, command=self.pxsize_change)
+		sld_px.grid(row=nrow, column=1)
+		self.sld_px = sld_px
+
+		tvar_pxsize = tk.StringVar(value="...")
+		self.tvar_pxsize = tvar_pxsize
+		lbl_pxsize = customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_pxsize).grid(row=nrow, column=2)
+		
+		sld_px.set(8)
+		nrow += 1
+
+
+		# img physical size
+
+		customtkinter.CTkLabel(master=frm_scan,text="size:").grid(row=nrow, column=0)
+
+		# from 100nm to 12um
+		vals = [e for e in PhysicalSizes]
+		sld_ph = customtkinter.CTkSlider(master=frm_scan, from_=0, to=len(vals)-1, number_of_steps=len(vals)-1, command=self.phsize_change)
+		sld_ph.grid(row=nrow, column=1)
+		self.sld_ph = sld_ph
+
+
+		tvar_phsize = tk.StringVar(value="...")
+		self.tvar_phsize = tvar_phsize
+
+		customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_phsize).grid(row=nrow, column=2)
+		sld_ph.set(8)
+		nrow += 1
+
+
+		# img fast-scan angle
+
+		customtkinter.CTkLabel(master=frm_scan,text="angle:").grid(row=nrow, column=0)
+		
+		sld_angle = customtkinter.CTkSlider(master=frm_scan, from_=-90, to=90, number_of_steps=180, command=self.phang_change)
+		sld_angle.grid(row=nrow, column=1)
+		self.sld_angle = sld_angle
+
+		tvar_phang = tk.StringVar(value="...")
+		self.tvar_phang = tvar_phang
+		customtkinter.CTkLabel(master=frm_scan,textvariable=tvar_phang).grid(row=nrow, column=2)
+
+		
+		sld_angle.set(0)
+		nrow += 1
+
+		bt_scan = customtkinter.CTkButton(master=frm_scan, text="SCAN", command=self.scan_click)
+		bt_scan.grid(row=nrow, column=1,pady=4)
+
+		return frm_scan
+
+	def _init_nav_panel(self, mainframe):
+
+		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		#frame_map_ctrl.grid_columnconfigure(1, weight=0, minsize=200)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=3)
+
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
+		
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=4, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=4, column=1, sticky="e")
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=5, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=5, column=1, sticky="e")
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="scanner coords:", text_font=("Terminal",9)).grid(row=6, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.variables['tippos']['object'], text_font=("Terminal",9)).grid(row=6, column=1, sticky="e")
+
+    
+		return frame_map_ctrl
+
+	###########################################################
+
+
+	def button_function(self):
+
+		print("button pressed")
+
+	def pxsize_change(self,value):
+
+		self.tvar_pxsize.set("{}".format(int(numpy.power(2,value))))
+
+	def phsize_change(self,value):
+
+		vals = [e.value for e in PhysicalSizes]
+		s = vals[int(value)]
+		u = "nm"
+
+		if s >= 1000:
+			s /= 1000
+			u = "μm"
+		self.tvar_phsize.set("{} {}".format(s,u))
+
+	def phang_change(self,value):
+
+		self.tvar_phang.set("{}°".format(value))
+
+
+	def scan_click(self):
+
+		print("scanning...")
+
+
+		# calls Scanner.ScanImage(pixels, size, angle)
+		vals = [e.value for e in PhysicalSizes]
+		size = vals[int(self.sld_ph.get())]
+		npx = int(numpy.power(2, self.sld_px.get()))
+		angle = self.sld_angle.get()
+
+		scan = self.ScanFunction(npx, size, angle)
+		self.canvas.AddObject(CanvasSPM("spm", scan), noRender=True)
+		print("scan completed")
+
+		#plt.matshow(scan.data)
+		#plt.show()
+
+		# update the tip position
+		tip = self.GetTipFunction()
+		self._onTipPosChange(tip)
+
+
+
+	def MoveTip(self, event):
+		
+		p = self.canvas.canvas_to_physical(numpy.asarray([event.x, event.y]))
+		#print("canvas click at", event.x, event.y, "--",p)
+
+		self.MoveTipFunction(p)
+
+		# when the movement is done, show the position
+		self._onTipPosChange(p)
+
+
+
+	def _onTipPosChange(self, newpos):
+
+		p = newpos
+		self.variables["tippos"]["value"][0] = p[0]
+		self.variables["tippos"]["value"][1] = p[1]
+		
+		m0, u0, n0 = self.canvas.physical_to_approximate(p[0], 3)
+		m1, u1, n1 = self.canvas.physical_to_approximate(p[1], 3)
+		self.variables['tippos']['object'].set(
+			"x:{:+.3f} {}, y:{:+.3f} {}".format(m0,u0, m1,u1)
+		)
+
+		self.canvas.render()
+
+
+	# DEPRECATED... they are now in the physical canvas object
+	'''
+	def canvas_redraw(self):
+
+		self.canvas.delete("all")
+
+		self._canvas_compute_corners()
+
+
+		# draw the spms
+
+		# get the global min/max
+		imgmin = float("inf")
+		imgmax = float("-inf")
+		for spm in self._scans:
+			m = numpy.min(spm.data)
+			imgmin = min(m, imgmin)
+
+			m = numpy.max(spm.data)
+			imgmax = max(m, imgmax)
+
+		self._imgmin = imgmin
+		self._imgmax = imgmax
+
+		#print("rendering images...")
+		# sort images by resolution
+		# low res images are drawn first
+		scans = sorted(self._scans, key=lambda x: x.pixelSize[0], reverse=True)
+		self._crops = []
+		for spm in scans:
+			#print("rendering spm...")
+			self.canvas_redraw_spm(spm)
+
+
+
+		# draw some debug points
+		q = numpy.zeros(2)
+		p = self.physical_to_canvas(q)
+		#print(p,q, self.canvas_size)
+		self.canvas.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2, fill="#FF0000")
+		
+		q[0] = 1
+		p = self.physical_to_canvas(q)
+		#print(p,q)
+		self.canvas.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2, fill="#00FF00")
+
+		q[1] = 1
+		p = self.physical_to_canvas(q)
+		#print(p,q)
+		self.canvas.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2, fill="#0000FF")
+		
+
+
+
+		# draw the tip guessed position - crosshair
+		self.canvas_redraw_tip()
+
+
+		self.canvas_redraw_scalebar()
+
+
+	def canvas_redraw_spm(self, spm):
+
+		# get the vertexes of this spm in canvas px coordinates
+		# ASSUMPTIONS (DEBUG!!!):
+		# 	angle is 0
+		# 	slow scan is from bottom to top (positive y axis in physical space)
+		# 	fast scan is in the positive x physical axis
+
+
+		# determine which part of the picture to draw
+		# these are the canvas corners in physical space
+		y0 = self.canvas_corners[3,1]
+		ym = self.canvas_corners[0,1]
+		x0 = self.canvas_corners[0,0]
+		xm = self.canvas_corners[1,0]
+
+		#print("canvas corners:",[x0,y0],[xm,ym])
+
+		# TODO: include SPM image rotation
+
+
+		# if both corners of an edge are on the same side of the canvas, the image is out
+		spm_x0 = spm.frame_corners[0,0]
+		spm_xm = spm.frame_corners[1,0]
+
+		frame_x0 = numpy.max([x0,spm_x0])
+		frame_xm = numpy.min([xm,spm_xm])
+
+		#print("frame x",frame_x0,frame_xm,x0,xm)
+
+		if frame_xm < x0 or frame_x0 > xm:
+			#print("spm is out of canvas (x)")
+			return None
+
+		spm_y0 = spm.frame_corners[0,1]
+		spm_ym = spm.frame_corners[2,1]
+
+		frame_y0 = numpy.max([y0,spm_y0])
+		frame_ym = numpy.min([ym,spm_ym])
+
+		if frame_ym < y0 or frame_y0 > ym:
+			#print("spm is out of canvas (y)")
+			return None
+
+		# code here => there is some overlap between spm and canvas
+		#print("frame boundaries on spm (x):",[spm_x0,frame_x0],[spm_xm,frame_xm])
+		#print("frame boundaries on spm (y):",[spm_y0,frame_y0],[spm_ym,frame_ym])
+
+
+
+		# convert height values to color
+		# this can make the topography contrast go away quite a bit
+		data = spm.data - self._imgmin # also applies the shift
+		data /= self._imgmax
+		data *= 255
+
+		# final conversion to bytes and flip vertically
+		data = data.astype(numpy.uint8)
+		data = numpy.flip(data, axis=0)
+
+		# create the PIL image object from data
+		pic = Image.fromarray(data)
+		rot = pic.rotate(spm.angle, expand=True)
+		# make a rotation mask
+		mask = numpy.zeros(data.shape,dtype=numpy.uint8)
+		mask += 255
+		mask = Image.fromarray(mask)
+		mask = mask.rotate(spm.angle, expand=True)
+
+		# this is completely white-transparent image to blend with rot using mask
+		bgim = numpy.zeros((data.shape[0],data.shape[1],4),dtype=numpy.uint8)
+		bgim[:,:,0] = bgim[:,:,1] = bgim[:,:,2] = 255
+		bgim = Image.fromarray(bgim, mode="RGBA")
+		bgim = bgim.rotate(spm.angle, expand=True)
+
+		rotm = Image.composite(rot, bgim, mask)
+
+		# crop the image
+		# where is frame_x0 in spm pixel coordinates?
+		frame_px_x0 = int(numpy.floor((frame_x0 - spm_x0) / spm.pixelSize[0]))
+		frame_px_xm = int((frame_xm-spm_x0) / spm.pixelSize[0])
+		if frame_px_xm == 0: frame_px_xm = 1
+
+		#print("frame pixel coords (x)",frame_px_x0,frame_px_xm)
+		#data = data[:,frame_px_x0:frame_px_xm+1]
+
+		frame_px_y0 = int(numpy.floor((frame_y0 - spm_y0) / spm.pixelSize[1]))
+		frame_px_ym = int((frame_ym-spm_y0) / spm.pixelSize[1])
+		if frame_px_ym == 0: frame_px_ym = 1
+
+		#print("frame pixel coords (y)",frame_px_y0,frame_px_ym)
+		#data = data[frame_px_y0:frame_px_ym+1]
+
+		#crop_px = numpy.asarray([data.shape[1],data.shape[0]])
+		#crop_nm = crop_px * spm.pixelSize
+		#print("cropped size {}px - {}nm".format(crop_px, crop_nm))
+
+		#print("data stats",numpy.mean(spm.data),numpy.min(spm.data),numpy.max(spm.data))
+
+		# perform the crop
+		cropbox = (frame_px_x0, rotm.size[1]-frame_px_ym, frame_px_xm, rotm.size[1]-frame_px_y0)
+		#print("cropping",rotm.size, cropbox)
+		pic = rotm.crop(cropbox)
+		
+
+		# resample to match canvas resolution
+
+		# we have to make the spm pixels the same size as the canvas pixels
+		# canvas pixel size is 1 / self.canvas_res
+		# spm pixel size is spm.pixelSize (x,y components)
+
+		trgPXsize = numpy.asarray([1,1]) / self.canvas_res
+		curPXsize = spm.pixelSize
+		scaling = curPXsize / trgPXsize
+		newsize = numpy.round(numpy.asarray([pic.size[0],pic.size[1]]) * scaling)
+		newsize = newsize.astype(numpy.uint32)
+		method = Image.Resampling.BICUBIC
+		if scaling[0] < 1 and scaling[1] < 1:
+			method = Image.Resampling.LANCZOS
+		#print(trgPXsize,curPXsize,scaling,"--",data.shape, newsize)
+
+		pic = pic.resize(newsize, resample=method)
+		tkpic = ImageTk.PhotoImage(image=pic)
+
+	
+
+		self._crops.append(tkpic)
+
+
+
+		p = numpy.asarray([frame_x0, frame_y0], dtype=numpy.float64)
+		c = self.physical_to_canvas(p)
+		#print("canvas placement:",p,c)
+		self.canvas.create_image(c[0],c[1], image=tkpic, anchor="sw")
+		#print("the spm is now {}w x {}h [nm]".format(pic.size[0]/self.canvas_res, pic.size[1]/self.canvas_res))
+		
+		return
+
+
+	# makes the crosshair at the scanner position
+	def canvas_redraw_tip(self):
+
+		tip = self.GetTipFunction()
+		ctip = self.physical_to_canvas(tip)
+		u = ["nm","nm"]
+		for i in range(2):
+			if numpy.abs(tip[i]) > 1000:
+				tip[i] /= 1000
+				u[i] = "μm"
+
+		self.tvar_canvas_scanner.set("x:{:+.3f} {}, y:{:+.3f} {}".format(tip[0],u[0],tip[1],u[1]))
+		
+		self.canvas.create_line(ctip[0], ctip[1]-8, ctip[0], ctip[1]-2, fill="red")
+		self.canvas.create_line(ctip[0], ctip[1]+8, ctip[0], ctip[1]+2, fill="red")
+
+		self.canvas.create_line(ctip[0]-8, ctip[1], ctip[0]-2, ctip[1], fill="red")
+		self.canvas.create_line(ctip[0]+8, ctip[1], ctip[0]+2, ctip[1], fill="red")
+
+	'''
+
+
+class TabLithoPath(customtkinter.CTkFrame):
+
+	def __init__(self, parent, controller):
+
+		customtkinter.CTkFrame.__init__(self, parent)
+
+		self.alanngui = controller
+		self.frame_options_dict={} # when we load a GDS file, each shape will get its own frame that will
+		# contain options to choose from on how to write. This dictionary will contain those frames
+		self.gds = None
+
+		self.grid_rowconfigure(0, weight=1)
+		self.grid_columnconfigure(0, weight=0, minsize=400)
+		self.grid_columnconfigure(1, weight=2, minsize=400)
+
+
+		### panel variables
+		self.variables = {
+			'writefield': 	{'object': tk.StringVar(self), 'value':None},
+			'writespeed': 	{'object': tk.StringVar(self), 'value':None},
+			'idlespeed': 	{'object': tk.StringVar(self), 'value':None},
+			'pitch': 		{'object': tk.StringVar(self), 'value':None},
+			'exptype': 		{'object': tk.StringVar(self), 'value':None},
+		}
+		self.polygons = []
+		self.lith_paths = []
+
+		###########################
+		# CANVAS FRAME
+		###########################
+		canvas = PhysicalCanvas(self, background="white")
+		canvas.grid(row=0, column=1,padx=8,pady=8, sticky="nsew")
+		self.canvas = canvas
+
+		canvas.callbacks['click'].append(self._canvas_onclick)
+
+		#canvas.AddObject(CanvasLine("",numpy.asarray([[0,0],[5,5]]), fill="red"))
+		#canvas.AddObject(CanvasPoint("",numpy.asarray([0,0]), pxsize=2, fill="blue"))
+
+
+
+
+		#######################################
+		# frame for path controls
+		#######################################
+		panel = customtkinter.CTkFrame(self)
+		panel.grid(row=0,column=0, padx=8, pady=8, sticky='nsew')
+		panel.grid_columnconfigure(0, weight=1)
+		self.rast_prop = panel
+		self.mainpanel = panel
+
+		### title
+		customtkinter.CTkLabel(panel, text="LithoPath Controls", text_font=('Roboto', 14)).grid(row=0, column=0, pady=4, padx=4, sticky='new')
+
+		### load file button
+		self.gdsLoaded = False
+		customtkinter.CTkButton(panel, text='Load file', command=self.openfile_onclick).grid(row=1,column=0,sticky="n")
+
+
+		### control panel
+		self.controlpanel = self._init_controlPanel(panel)
+		self.controlpanel.grid(row=2, padx=4,pady=4,sticky="new")
+		
+		### shape control panel
+		self.shapepanel = self._init_shape_panel(panel)
+		self.shapepanel.grid(row=3, padx=4, pady=4, sticky="new")
+		
+		### navigation panel
+		self.navpanel = self._init_nav_panel(panel)
+		self.navpanel.grid(row=4,column=0, padx=4, pady=4, sticky="new")
+
+
+
+	### SUB PANELS ### ########################################
+
+	def _init_controlPanel(self, master):
+
+		cp = customtkinter.CTkFrame(master)
+		cp.grid_columnconfigure(0, weight=1)
+		cp.grid_columnconfigure(1, weight=1)
+
+		customtkinter.CTkLabel(cp, text="Raster settings").grid(row=0, columnspan=2, pady=4, sticky='new')
+
+
+		
+		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
+		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
+		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
+		self.control_pitch = customtkinter.CTkEntry(cp, textvariable=self.variables['pitch']['object'])
+		self.control_pitch.grid(row=2, column=1, padx=4, sticky='ew')
+
+		customtkinter.CTkLabel(cp, text="Write Speed [nm/s]: ").grid(row=3, column=0, pady=4, sticky='w')		
+		self.control_writespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['writespeed']['object'])
+		self.control_writespeed.grid(row=3, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['idlespeed']['object'])
+		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
+		
+		customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
+
+
+		customtkinter.CTkLabel(cp, text="Export paths").grid(row=6, column=0, columnspan=2, pady=8, sticky='ew')
+
+		# Entry fields and their labels
+		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
+
+		options = ['Matrix Script','.txt file']
+		self.control_exptype = ttk.OptionMenu(cp, self.variables['exptype']['object'], options[0], *options, command=self.exptype_onchange)
+		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
+
+		customtkinter.CTkButton(cp, text='export', command=self.export_onclick).grid(row=8, columnspan=2, pady=4, sticky="n")
+		
+		return cp
+
+	def _init_nav_panel(self, mainframe):
+
+		frame_map_ctrl = customtkinter.CTkFrame(master=mainframe, corner_radius=4)
+		frame_map_ctrl.grid_columnconfigure(0, weight=0)
+		frame_map_ctrl.grid_columnconfigure(1, weight=1, minsize=200)
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="Navigation").grid(row=0, columnspan=2, sticky="n")
+
+		frm = customtkinter.CTkFrame(master=frame_map_ctrl, corner_radius=4)
+		frm.grid(row=1,columnspan=2, sticky="n")
+
+
+		cv = self.canvas
+
+		customtkinter.CTkButton(master=frm, text="↑", command=lambda: cv.move([0,-1]), width=48).grid(row=0, column=1, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="←", command=lambda: cv.move([-1,0]), width=48).grid(row=1, column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="→", command=lambda: cv.move([1, 0]), width=48).grid(row=1, column=2, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="↓", command=lambda: cv.move([0, 1]), width=48).grid(row=2, column=1, padx=4,pady=4)
+
+		customtkinter.CTkButton(master=frm, text="+", width=32, command=lambda: cv.zoom(inc=True) ).grid(row=2,column=0, padx=4,pady=4)
+		customtkinter.CTkButton(master=frm, text="-", width=32, command=lambda: cv.zoom(inc=False)).grid(row=2,column=2, padx=4,pady=4)
+			
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="resolution:", text_font=("Terminal",9)).grid(row=2, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['resolution']['object'], text_font=("Terminal",9)).grid(row=2, column=1, sticky="e")
+
+		customtkinter.CTkLabel(master=frame_map_ctrl,text="mouse coords:", text_font=("Terminal",9)).grid(row=3, column=0, sticky="w")
+		customtkinter.CTkLabel(master=frame_map_ctrl, textvariable=self.canvas.variables['mousepos']['object'], text_font=("Terminal",9)).grid(row=3, column=1, sticky="e")
+
+		
+		return frame_map_ctrl
+
+	def _init_shape_panel(self, master):
+
+		frm = customtkinter.CTkFrame(master=master, corner_radius=4)
+		frm.grid_columnconfigure(0, weight=0)
+		frm.grid_columnconfigure(1, weight=1)
+
+		self.variables['shape_selected'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_filltype'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_outline'] = {'object': tk.StringVar(frm), 'value': None}
+		self.variables['shape_raster'] = {'object': None, 'value': None}
+		self.variables['shape_clear'] = {'object': None, 'value': None}
+
+
+		self.variables['shape_selected']['object'].set('Shape rasterization')
+		label = customtkinter.CTkLabel(frm, textvariable=self.variables['shape_selected']['object'], text_font=('Helvetica', 10)).grid(row=0, columnspan=2, pady=4, padx=4, sticky='n')
+		
+		
+		options_scan = ['X-serpentine', 'Y-serpentine', 'Spiral', 'more tbc']
+		customtkinter.CTkLabel(frm, text="Fill type: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=4, padx=4,sticky='w')
+		self.variables['shape_filltype']['value'] = ttk.OptionMenu(frm, self.variables['shape_filltype']['object'], options_scan[0], *options_scan )
+		self.variables['shape_filltype']['value'].grid(row=1, column=1, pady=4,padx=4, sticky='e')
+		self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+		
+
+		options_fill = ['Only fill', 'Fill and outline']
+		customtkinter.CTkLabel(frm, text="Mode: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=4, padx=4, sticky='w')
+		self.variables['shape_outline']['value'] = ttk.OptionMenu(frm, self.variables['shape_outline']['object'], options_fill[0], *options_fill)
+		self.variables['shape_outline']['value'].grid(row=2, column=1, pady=4,padx=4, sticky='e')
+		self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+
+
+		self.variables['shape_raster']['value'] = customtkinter.CTkButton(master=frm, text="raster", command=self._raster_onclick)
+		self.variables['shape_raster']['value'].grid(row=3, column=0, padx=4,pady=4, sticky="ne")
+		self.variables['shape_raster']['value'].config(state=tk.DISABLED)
+
+		self.variables['shape_clear']['value'] = customtkinter.CTkButton(master=frm, text="reset", command=self._clear_onclick)
+		self.variables['shape_clear']['value'].grid(row=3, column=1, padx=4,pady=4, sticky="nw")
+		self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+
+		
+		return frm
+
+	###########################################################
+
+
+	## called when the load button is clicked
+	def openfile_onclick(self):
+
+
+		file = filedialog.askopenfile(mode='r')
+		print("selected file", file)
+
+		if file is None:
+			return
+
+
+		# code here => a file was selected
+		self.gds = GDSConverter.GDS(file)
+		file.close()
+
+
+		# hopefully the file was opened and parsed correctly!
+		# show the polygons on the canvas
+		self.polygons = []
+		mean = numpy.zeros(2, dtype=numpy.float64)
+		minmax = numpy.zeros((2,2), dtype=numpy.float64)
+		minmax[0,:] = float("inf")
+		minmax[1,:] = float("-inf")
+		
+		for shapeID in self.gds.shapes.keys():
+
+			shape = self.gds.shapes[shapeID]
+
+			# polygon of the starting shape
+			poly = CanvasLine("poly[{}]".format(shapeID), shape.vertexes, fill="blue")
+			poly.srcShape = shape
+
+			self.polygons.append(poly)
+			self.canvas.AddObject(poly, noRender=True)
+
+			m = numpy.mean(shape.vertexes[0:-1], axis=0) # avoid the last point since it is same as first
+			mean += m
+
+			m = numpy.min(numpy.concatenate((shape.vertexes, [minmax[0]]), axis=0), axis=0)
+			minmax[0] = m
+			m = numpy.max(numpy.concatenate((shape.vertexes, [minmax[1]]), axis=0), axis=0)
+			minmax[1] = m
+			
+			# make the frames containing the option menus for all the shapes but do not render them on screen
+			# they will be rendered only when the mouse clicks within one of the shapes
+			#self.make_shape_frame(shapeID)
+
+
+			# TODO: add rasterization if done - NO! the file was just loaded so there cannot be a rasterization available
+
+
+		# rescale and recenter the
+		mean /= len(self.gds.shapes)
+		self.canvas.center = mean
+
+		# we want canvas.physicalside to be bigger than max-min
+		desiredSide = numpy.max(minmax[1]-minmax[0])*1.1
+		currentSidePx = numpy.min(self.canvas.size)
+		currentSide = currentSidePx / self.canvas.resolution
+		desiredSideRes = currentSidePx / desiredSide
+		#print("res: ",currentSide,currentSidePx,desiredSide,desiredSideRes)
+
+		# this will also redraw the canvas
+		self.canvas.setSpace(mean, desiredSideRes)
+
+
+
+	def _canvas_onclick(self, event):
+
+		# no gds = no fun
+		if not self.gds:
+			return
+
+		c = numpy.asarray([event.x, event.y])
+		p = self.canvas.canvas_to_physical(c)
+		#print("check polygons at",c,p)
+
+		selected = None
+
+		for shapeID in self.gds.shapes.keys():
+			shape = self.gds.shapes[shapeID]
+			#print("checking poly",shapeID)
+
+			a = [x for x in self.polygons if x.srcShape == shape]
+			poly = a[0]
+
+			if shape.pointIsInside(p):
+
+				#print("selected polygon",shapeID)
+				selected = shapeID
+
+				# mark as selected
+				poly.options['fill'] = 'red'
+				poly.options['width'] = 3
+
+				#self.frame_options_dict[shapeID].grid(row=10, columnspan=2, sticky='n')
+				self.variables['shape_selected']['object'].set("Shape[{}] rasterization".format(shapeID))
+				self.variables['shape_selected']['value'] = shape
+
+				# load the rasterization options if available
+				self.variables['shape_filltype']['value'].config(state=tk.NORMAL)
+				self.variables['shape_outline']['value'].config(state=tk.NORMAL)
+				self.variables['shape_raster']['value'].config(state=tk.NORMAL)
+				self.variables['shape_clear']['value'].config(state=tk.NORMAL)
+				# ...
+				if shape.rasterPath is not None:
+					self.variables['shape_filltype']['object'].set(shape.rasterType)
+					self.variables['shape_outline']['object'].set(shape.rasterMode)
+					
+				
 			else:
-				t1 = t1[-1]
 
-			# find the terrace after this step
-			t2 = [t for t in terraces if t[0,0] >= steps[i][1]]
-			if len(t2) == 0: continue
-			else: t2 = t2[0]
+				# deselect the polygon
+				poly.options['fill'] = 'blue'
+				poly.options['width'] = 1
 
-			# check delta of means
-			delta = numpy.mean(t2[:,1]) - numpy.mean(t1[:,1])
-			
-			# if delta is below threshold, then there must have been a false step edge
-			if numpy.abs(delta) > stepthr:
-				goodsteps[i] = numpy.round(delta/stepPhysSize)
-		
-		#print(goodsteps)
 
-		tmp = []
-		for i in range(len(steps)):
-			if goodsteps[i] == 0: continue
-			s = steps[i]
-			#print(s)
-			s[-1] = goodsteps[i]
-			tmp.append(s)
 
-		return tmp
+		if selected is None:
 
+			self.variables['shape_selected']['object'].set("Shape[not selected] rasterization")
+			self.variables['shape_selected']['value'] = None
 
-	def Mesoscale_line_terraceRedivide(line, goodsteps, terraces):
+			# disable controls
+			self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+			self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+			self.variables['shape_raster']['value'].config(state=tk.DISABLED)
+			self.variables['shape_clear']['value'].config(state=tk.DISABLED)
 
-		mterraces = []
 
-		# merge terraces before a step
-		tidx = 0
-		sidx = 0
-		cend = 0
-		cterrace = None
 
-		while True:
 
-			if tidx == len(terraces):
-				mterraces.append(cterrace)
-				break
-
-			t = terraces[tidx]
-
-			# if we past the last step already
-			if sidx >= len(goodsteps):
-				cterrace = numpy.concatenate((cterrace, t))
-				tidx += 1
-				continue
-
-			# check if terrace tidx ends before the current step
-			if t[-1,0] <= goodsteps[sidx][0]:
-				
-				if cterrace is None: cterrace = t
-				else: cterrace = numpy.concatenate((cterrace, t))
-
-				tidx += 1 # move to next terrace
-				continue
-
-			# if the current terrace starts past the current step
-			# save the merged terrace and move to the next step
-			if t[0,0] >= goodsteps[sidx][1]:
-
-				mterraces.append(cterrace)
-				cterrace = t
-				sidx += 1
-				tidx += 1
-
-
-		# compute linear fits and subtract
-		for i in range(len(mterraces)):
-
-			t = mterraces[i]
-			x = t[:,0]
-			y = t[:,1]
-
-			if t.shape[0] < 5: continue
-			
-			#print("polyfit",t.shape)
-			fit = numpy.polyfit(x,y,1)
-			
-			mterraces[i][:,1] -= fit[1] + fit[0] * x
-
-
-		# assign terrace height/ID values
-		lineID = numpy.zeros(len(line), dtype=numpy.int32)
-		stepmask = numpy.zeros(len(line), dtype=numpy.int32)
-		for g in goodsteps: 
-			lineID[g[1]] = g[-1]
-			stepmask[g[0]:g[1]] = 1
-
-		lineID = numpy.cumsum(lineID)
-
-		return mterraces, lineID, stepmask
-
-
-	def Mesoscale_image_process(stmscan, st1=0.07, sm1=0.1, st2=0.09, sps=0.12):
-
-		img = stmscan.data
-		stepmask = numpy.zeros(img.shape, dtype=numpy.int32)
-		terraceIDs = numpy.zeros(img.shape, dtype=numpy.int32)
-
-
-		for li in range(img.shape[0]):
-			line = stmscan.data[li]
-			peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=st1, stepminheight=sm1)
-			linemask = Detector.Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=8)
-			stepmask[li] = linemask
-
-			''' FIRST TEST
-				peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=st1, stepminheight=sm1)
-				terraces = Detector.Mesoscale_line_terracedivide(line, peaks, steps)
-				goodsteps = Detector.Mesoscale_line_goodsteps(line, terraces, steps, stepthr=st2, stepPhysSize=sps)
-				mterraces, lineID, linemask = Detector.Mesoscale_line_terraceRedivide(line, goodsteps, terraces)
-
-				terraceIDs[li] = lineID
-				stepmask[li] = linemask
-			'''
-
-
-		# redo the pass in vertical direction
-		for li in range(img.shape[1]):
-			line = stmscan.data[:,li]
-			peaks, steps = Detector.Mesoscale_line_peakfind(line, stepthr=0.08, stepminheight=0.1)
-			linemask = Detector.Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=8)
-			stepmask[:,li] += linemask
-
-
-		stepmask[stepmask>0] = 1
-
-
-		
-		#labels, nb = ndimage.label(stepmask)
-		numpy.save("meso.stepmask.npy", stepmask)
-
-		fig, (ax1, ax2) = plt.subplots(1, 2)
-		ax1.matshow(stepmask)
-		ax2.matshow(terraceIDs)
-		plt.show()
-
-
-
-
-		return terraceIDs
-
-
-	def Mesoscale_image_coloring(tmap):
-
-		# start with ...
-
-		pass
-
-
-
-	def Mesoscale_line_bumpfind(line, steps, thr=0.07, buffersize=4):
-
-		mask = numpy.zeros(len(line), dtype=numpy.int32)
-
-		for s in steps:
-			
-			x1 = max(0,s[0]-buffersize)
-			x2 = s[1]
-			x3 = min(x2+buffersize, len(line))
-
-			b1 = line[x1:s[0]]
-			b2 = line[s[1]:x3]
-
-			if len(b1) == 0 or len(b2) == 0: continue
-
-			m1 = numpy.mean(b1)
-			m2 = numpy.mean(b2)
-			delta = m2-m1
-
-			if numpy.abs(delta) > thr:
-				mask[s[0]:s[1]] = 1
-
-
-		return mask
-
-
-	# #########################################################################
-	# #########################################################################
-	# ### STEP EDGE DETECTION ### #############################################
-
-
-	## Detects step edges (not 100% perfect, depending on noise, but good enough)
-	# Returns a binary map (step = 1, terrace = 0)
-	#
-	def StepDetector(self, spm):
-
-		if not isinstance(spm,SPM):
-			raise ValueError('argument is not an SPM object')
-			return None
-		
-		src = spm.data
-		border = self.margin
-
-		
-		# TODO: make this resolution independent
-		gaussmat_1_14 = GaussianMatrix(1,1.4)
-		gaussmat_2_14 = GaussianMatrix(2,1.4)
-
-		sobelkernel = numpy.asarray([
-			[1/numpy.sqrt(2), 1, 1/numpy.sqrt(2)], 
-			[1, -(4 + 4/numpy.sqrt(2)), 1], 
-			[1/numpy.sqrt(2), 1, 1/numpy.sqrt(2)]])
-
-		smooth = src * 1
-
-		for smoothCycles in range(1):
-
-			# this one has 1 px boundary of crap
-			tmp0 = scipy.signal.convolve2d(smooth, gaussmat_1_14, mode='same', boundary='fill', fillvalue=0)
-			#tmp0 = ListConvolve[GaussianMatrix[{1, 1.4}], smooth, {-1, 1}];
-			
-			# this one has 2 px of boundary crap
-			tmp = scipy.signal.convolve2d(smooth, gaussmat_2_14, mode='same', boundary='fill', fillvalue=0)
-			#tmp = ListConvolve[GaussianMatrix[{gaussR, 1.4}], smooth, {-1, 1}];
-
-			smooth[1:-1, 1:-1] = tmp0[1:-1, 1:-1]
-			smooth[2:-2, 2:-2] = tmp[2:-2, 2:-2]
-
-
-		
-		ithr = 0.02
-		sobel = scipy.signal.convolve2d(smooth, sobelkernel, mode='same', boundary='fill', fillvalue=0)
-		sobel = sobel[1:-1, 1:-1] # throw away borders
-		sobel = numpy.abs(sobel)
-
-		# everything less or equal ithr becomes 0
-		thr = (sobel > ithr) * sobel
-
-
-		
-		# gaussR = 1;
-		# progressive thresholding
-		for cycles in range(24):
-
-			tmp = scipy.signal.convolve2d(thr, gaussmat_1_14, mode='same', boundary='fill', fillvalue=0)
-			thr[1:-1, 1:-1] = tmp[1:-1, 1:-1]
-			
-			thr += sobel
-			thr = (thr > ithr) * thr
-			
-			ithr *= 1.1
+		self.canvas.render()
 		
 
-		thr = (thr > ithr)
-		thr = thr[border:-border, border:-border]
+
+	def exptype_onchange(self, variable):
+
+		"""
+		Export type selector onchange event handler.
+		This is called automatically by the GUI.
+
+		:param variable: selected format option
+		:type variable: str
+		
+		"""
+
+
+		if variable=='.txt file':
+			self.control_writefield.config(state=tk.DISABLED)
+			self.control_writespeed.config(state=tk.DISABLED)
+			self.control_idlespeed.config(state=tk.DISABLED)
+		
+		elif variable=='Matrix Script':
+			self.control_writefield.config(state=tk.NORMAL)
+			self.control_writespeed.config(state=tk.NORMAL)
+			self.control_idlespeed.config(state=tk.NORMAL)
+
+		else:
+			raise ValueError("Export type not implemented")
+
+
+	def _raster_onclick(self):
+
+		shape = self.variables['shape_selected']['value']
+		if shape is None: return
+
+
+		# remove old rasterization from view - do not update
+		self.canvas.RemoveObject('polyfill-{}'.format(shape.index), noRender=True)
+
+		# compute the rasterization
+		rtype = self.variables['shape_filltype']['object'].get()
+		routl = self.variables['shape_outline']['object'].get()
+		pitch = int(self.variables['pitch']['object'].get())
+
+		shape.vector_scan(rtype, routl, pitch)
 		
 
-		# do connected component analysis
+		# add new rasterization to the canvas
+		fillLine = CanvasLine("polyfill-{}".format(shape.index), shape.rasterPath, fill="orange")
+		self.canvas.AddObject(fillLine)
 
-		labels, nb = scipy.ndimage.label(thr)
 
 
-		# labels is a matrix with the obj IDs of connected objects
-		# compute CC areas
-		unique, counts = numpy.unique(labels, return_counts=True)
-		cc_count = dict(zip(unique, counts))
-		#print(cc_count)
+	def _clear_onclick(self):
 
-		cc_count.pop(0, None) # remove bg
+		shape = self.variables['shape_selected']['value']
+		if shape is None: return
 
-		# remove smalls
-		keys = list(cc_count.keys())
-		for l in keys:
-			if l == 0: continue
+		# clear rasterization parameters
+		shape.rasterPath = None
+		shape.rasterType = None
+		shape.rasterMode = None
 
-			if cc_count[l] < self.sizeMin:
-				labels = (labels != l) * labels
-				cc_count.pop(l, None)
+		# remove rasterization from canvas
+		self.canvas.RemoveObject('polyfill-{}'.format(shape.index))
 
+
+
+	def export_onclick(self):
+
+		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
+		# clear plot
 		
-		keys = list(cc_count.keys())
-		for l in keys: # for each component
+		# define variables
+		#write_field = int(self.tvar_write_field.get())
+		pitch = int(self.variables['pitch']['object'].get())
+		#write_speed = int(self.write_speed.get())
+		#idle_speed = int(self.idle_speed.get())
 
-			# find min and max idx of the component
-			sl = scipy.ndimage.find_objects(labels == l)[0]
-			
-			tmp = labels[sl]
-			tmp = (tmp == l)
+		# get vector scan coordinates for each shape
+		for shape in self.gds.shapes:
+			write_type = self.frame_options_dict[shape].var_scan.get()
+			scan_type = self.frame_options_dict[shape].var_fill.get() 
 
-			#plt.matshow(tmp)
-			#plt.savefig('thr4_'+str(l)+'.png')
+			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
 
-			# compute moments
-			area = cc_count[l] # m00
+		# plot the new cooords
+		# don't clear the canvas, just draw the raster path in a different colour so both
+		# can be seen at the same time
+		
+		# remove any lithography paths currently on canvas
+		for path in self.lith_paths: 
+			self.canvas.RemoveObject(path.name)
 
-			m11 = 0; m20=0; m02=0;
-			# first the centroid
-			x=0;y=0;
-			for i in range(tmp.shape[0]):
-				for j in range(tmp.shape[1]):
-					if tmp[i,j] == 0: continue
-					x += j
-					y += i
-			x = x/area
-			y = y/area
-
-			for i in range(tmp.shape[0]):
-				for j in range(tmp.shape[1]):
-					if tmp[i,j] == 0: continue
-
-					m11 += (i-y)*(j-x)
-					m02 += (j-x)*(j-x)
-					m20 += (i-y)*(i-y)
-
-			a1 = m20+m02+numpy.sqrt(math.pow(m20 - m02,2) + 4*m11*m11)
-			a2 = m20+m02-numpy.sqrt(math.pow(m20 - m02,2) + 4*m11*m11)
-			ecc = numpy.sqrt(1 - a2/a1)
-			#ecc  = m20+m02+numpy.sqrt(math.pow(m20 - m02,2) + 4*m11*m11)
-			#ecc /= m20+m02-numpy.sqrt(math.pow(m20 - m02,2) + 4*m11*m11)
-
-			theta = 0.5*numpy.arctan2(2*m11, (m20 - m02))
-			theta = numpy.abs(numpy.sin(theta))
-
-			
-			if ecc > self.eccMax and theta > 0.9:
-				labels = (labels != l) * labels
-				cc_count.pop(l, None)
-
-			print(l, area, ecc, theta)
+		# draw the new lithography paths
+		for shape in self.gds.shapes:
+			lith_path = CanvasLine('lithpath'+str(shape), self.gds.shapes[shape].rasterPath, fill="red")
+			self.canvas.AddObject(lith_path)
+			self.lith_paths.append(lith_path)
+		
 
 
-		final = (labels > 0)
-
-		return final
-
-	
-	# #########################################################################
-	# #########################################################################
 
 
-# END OF CLASS
+
+
+
+
+if __name__ == "__main__":
+
+	print("Hello world!")
+
+
+	'''
+	a = [[0,1,2,3],[1,2,3,4],[2,3,4,5],[3,4,5,6]]
+	a = numpy.asarray(a, dtype=numpy.float64)
+	a /= 6
+	a *= 255
+	a = a.astype(numpy.uint8)
+	a = numpy.flip(a, axis=0)
+	pic = Image.fromarray(a)
+	pic.save("test.png")
+	'''
+
+
+	# create a sample
+	s = Sample(20000, 5.0, 0.5, 1.8, 8)
+	#s = SampleCheck(10.0)
+
+	# make a scanner
+	scn = Scanner(s)
+
+
+	# create the gui
+	gui = ALANNGUI()
+	# assign a scan function
+	gui.tabInfo['nav']['frame'].ScanFunction = scn.ScanImage
+	gui.tabInfo['nav']['frame'].MoveTipFunction = scn.MoveTip
+	gui.tabInfo['nav']['frame'].GetTipFunction = scn.GetTip
+
+
+	# run the app
+	gui.mainloop()
