@@ -1,0 +1,267 @@
+//
+//  Hydrogen Lithography MATE Project
+
+
+// - Pattern_Writer_v2.1.MATE
+//
+//  03.Feb.2021
+//  v2.1
+//  - sets 'next_coordinate' to path first position. removes large movement of tip at start of write.
+//
+
+//  - Pattern_Writer_v2.0.MATE
+//
+//  10.Feb.2019 - Procopios Constantinou
+//  v2.0
+//  - Added 'path_dwell_time', a variable that introduces a dwell time between writing each pre-defined path.
+//  - Added 'idle_scanspeed', a variable that allows the user to define the scan-speed during idle tip movements (when not writing).
+//
+//  17.Dec.2009 - Philipp Studer
+//  v1.0
+//
+//
+/*
+ ----------------
+-------- ABSTRACT
+This is a general MATE script that will write a pre-determined vector path whilst applying a constant gap-voltage, current set-point and scan-speed. This can be used for controlled patterning of hydrogen terminated silicon surfaces. Three points of a quadrilateral shape are defined, within which the pattern shall be written inside.
+Order;         Top-left, Bottom-left, Bottom-right.
+Experiment;    STM_AtomManipulation.
+----------------------------------------
+-------- STRUCTURE OF THE PATTERN MATRIX
+path[][][] is a three dimensional array where each row contains a path that shall be traced by the tip in writing mode. Each path consists an array of coorinates (x and y). The number of points per path has to be stored in points[]. The coordinate system origin has to be the top left and the coordinates shall be from 0 to 1 in x and y direction (relative coordinates to selected area!)
+points[] contains the number of points the corresponding path has.
+nrpaths contains the total of independent paths that are written.
+-------------------
+-------- HOW TO USE
+ (1)    Open exeriment and upload it to the Matrix CU.
+ (2)    Use menu item 'Tools < Manage Scrits...' to open the Script Manager.
+ (3)    Load the script, select the experiment to be used in the side bar of the script manager and associate the script with the experiment.
+ (4)    Build the executable version of the script.
+ (5)    Use the 'gearbox' control in the Project window to launch the script.
+ (6)    Select the 'tip relocation mouse tool' of an image window.
+ (7)    Click on the sample locations to define the box where to place the pattern; top-left, bottom-left, bottom-right.
+*/
+
+/*------------------------------------------------------------------------------------
+ -------- INITIALISING SCRIPT VARIABLES */
+// Defining the hydrogen lithography writing parameters
+var path_dwell_time         = 1;           // Dwell Time between writing each path [s]
+var write_gap_voltage       = 6;         // Writing Voltage [Volts] FEM 6-8 V, APM 3-4 V
+var write_current_setpoint  = 1500.e-12;   // Writing Current [Ampere] FEM 0.75-1.5 nA, APM 3-4.5 nA
+var write_scanspeed         = 50;          // Writing Scan Speed [nm/s] 25 - 400 nm/s
+var idle_scanspeed          = 350;         // Idle Scan Speed whilst not writing [nm/s]
+var data_acquisition        = false;       // Change this if you want to monitor signals
+// Define the script constants
+var frame_points            = 3;
+// Define path variables for the tip writing
+var path;
+var points;
+var nrpaths;
+// Define script variables
+var picked_points;
+var picked_coordinates;
+var next_coordinate;
+var idle_gap_voltage, idle_current_setpoint, idle_rastertime;
+var init_rastertime;
+var vector_xtemp;
+var vector_ytemp;
+var vector_xnext;
+var vector_ynext;
+var angle;
+var patternwidth;
+var patternheight;
+var writing;
+var pointcount;
+var pathcount;
+var write_rastertime;
+var test;
+
+/*------------------------------------------------------------------------------------
+ -------- ENTITY OBSERVERS */
+
+// Entity observer to intercept the signal from the 'mouse tool', which it sends to the XYScanner instance. Once three clicks are registered, it extracts the current scanning parameters and proceeds to move tip to its new location.
+function XYScanner.XY_Position_Trigger ()
+{
+    picked_coordinates[picked_points++] = XYScanner.Target_Position;
+    // Fool the 'mouse tool': Triggering the 'XY_Position_Reached' parameter will cause the tool to unlock itself so that it accepts the next selection.
+    trigger(XYScanner.XY_Position_Reached);
+    // Once three clicks are registered, it proceeds with the writing
+    if (picked_points == frame_points )
+    {
+        // Initialising XYScanner objects
+        XYScanner.Store_Current_Position = true;                // Allows to return to the current position after the write by calling resume()
+        XYScanner.Use_Aux_Settings = false;                     // No data acquisition while writing
+        XYScanner.Return_To_Stored_Position = false;            // Do not return to stored position right now
+        XYScanner.Trigger_Execute_At_Target_Position = false;   // No triggering of execute needed when position reached
+        // Extracting the initial speed of the scanning
+        init_rastertime = XYScanner.Raster_Time;
+        // Extracting the initial parameters to use in the idle state of moving and not writing
+        idle_gap_voltage = GapVoltageControl.Voltage;
+        idle_current_setpoint = Regulator.Setpoint_1;
+        idle_rastertime = (XYScanner.Width/XYScanner.Points);
+        idle_rastertime = idle_rastertime/(idle_scanspeed*1e-9);
+        // Extracting the initial parameters to use in the writing state
+        write_rastertime = XYScanner.Width/XYScanner.Points;
+        write_rastertime = write_rastertime/(write_scanspeed*1e-9);
+        // Extracting temporary y-position
+        vector_ytemp = picked_coordinates[0][1] - picked_coordinates[1][1];
+        patternheight = vector_ytemp;
+        if(patternheight<0)
+            patternheight = -patternheight;
+        // Extracting temporary x-position
+        vector_xtemp = picked_coordinates[2][0] - picked_coordinates[1][0];
+        patternwidth =  vector_xtemp;
+        if(patternwidth < 0)
+            patternwidth = - patternwidth;
+		
+              // Extracting the vector positions [x,y] for the very first tip write position [0][0]
+        vector_xtemp = picked_coordinates[0][0] + patternwidth * path[0][0][0];
+        vector_ytemp = picked_coordinates[0][1] - patternheight *  path[0][0][1];
+        next_coordinate = [vector_xtemp, vector_ytemp];
+        
+		relocate();                                 // Move to first the position
+        XYScanner.Store_Current_Position = false;   // The first position is saved, don`t overwrite with positions along the path
+    }
+}
+
+// Entity observer to intercept the CU's events emitted each time the probe has arrived at its destination. This is the primary entity observer that controls the motion of the tip over all the writing path vectors.
+function XYScanner.XY_Position_Reached ()
+{
+    // For the very first point in the writing path
+    if(pointcount == 0)
+    {
+        writing = 0;                    // default to no writing
+        writingcondition(writing);      // set tip parameters to idle state
+        // Extracting the vector positions [x,y] for the very first tip position
+        vector_xtemp = picked_coordinates[0][0] + patternwidth * path[pathcount][pointcount][0];
+        vector_ytemp = picked_coordinates[0][1] - patternheight *  path[pathcount][pointcount][1];
+        next_coordinate = [vector_xtemp, vector_ytemp];
+        pointcount++;                   // add one unit to the point count
+        relocate();                     // relocate the tip to its first position
+        // Add a dwell-time once the first co-ordinate of the path is reached
+        sleep(path_dwell_time*1000);    // convert s into ms for the sleep() function
+        
+    }
+    // For all other points in the writing path
+    else
+    {
+        // - If the pointcount is less than the total number of points in the path, keep writing
+        if(pointcount < points[pathcount])
+        {
+            // Switch from idle -> writing mode
+            if (writing == 0)
+            {
+                writing = 1;                    // switch on writing mode
+                writingcondition(writing);      // set tip parameters to writing state
+            }
+            // Extracting the vector positions [x,y] for the next writing point
+            vector_xtemp = picked_coordinates[0][0] + patternwidth * path[pathcount][pointcount][0];
+            vector_ytemp = picked_coordinates[0][1] - patternheight *  path[pathcount][pointcount][1];
+            next_coordinate = [vector_xtemp , vector_ytemp];
+            pointcount++;               // add one unit to the point count
+            relocate();                 // relocate the tip to its first position
+        }
+        // - If the path has finished writing, stop writing and move to the next path to start writing again
+        else
+        {
+            pathcount+=1;                   // add one unit to the path count
+            // -- If the pathcount is less than the total number of paths, stop writing and relocate to the next path
+            if(pathcount < nrpaths)
+            {
+                // Initialising parameters to start moving to new path
+                pointcount = 0;                 // reset the point count
+                writing = 0;                    // switch off writing mode
+                writingcondition(writing);      // set tip parameters to idle state
+                // Extracting the vector positions [x,y] for the next writing point of the new path
+                vector_xtemp = picked_coordinates[0][0] + patternwidth * path[pathcount][pointcount][0];
+                vector_ytemp = picked_coordinates[0][1] - patternheight *  path[pathcount][pointcount][1];
+                next_coordinate = [vector_xtemp , vector_ytemp];
+                pointcount++;               // add one unit to the point count
+                relocate();                 // relocate the tip to its first position of the new paths
+                // Add a dwell-time once the first co-ordinate of the path is reached
+                //sleep(path_dwell_time*1000);    // convert s into ms for the sleep() function, between paths
+            }
+            // -- Else, if all paths have been written, stop writing and move back to initial position
+            else
+            {
+                writing = 0;                    // switch off writing mode
+                writingcondition(writing);      // set tip parameters to idle state
+                XYScanner.resume();             // resume parameters back to normal
+                XYScanner.Raster_Time = init_rastertime;    // set tip speed back to initial value
+            }
+        }
+    }
+    
+    
+}
+
+// Entity observer to intercept the CU's events emitted when the tip finally arrives at its original position (after the 'resume operations' function has done its job).
+function XYScanner.XY_Position_Return ()
+{
+    init(); // re-initialise the script variables
+}
+
+/*------------------------------------------------------------------------------------
+ -------- FUNCTIONS */
+// Function to relocate the tip position to the next coordinate
+function relocate ()
+{
+    XYScanner.Target_Position = next_coordinate;
+    XYScanner.move();
+}
+// Function to change gap-voltage, set-point and scan speed, depending on whether the tip is writing or being idle
+function writingcondition (write)
+{
+    // Tip Writing parameters
+    if(write == 1)
+    {
+        Regulator.Setpoint_1 = 1.e-12;
+        sleep(1);
+        GapVoltageControl.Voltage = 3;
+        sleep(1);
+        GapVoltageControl.Voltage = write_gap_voltage;
+        Regulator.Setpoint_1 = write_current_setpoint;
+        XYScanner.Raster_Time = write_rastertime;
+    }
+    // Tip Idle parameters (moving, but not writing)
+    else
+    {
+        Regulator.Setpoint_1 = 1.e-12;
+        sleep(1);
+        GapVoltageControl.Voltage = idle_gap_voltage;
+        Regulator.Setpoint_1 = idle_current_setpoint;
+        XYScanner.Raster_Time = idle_rastertime;
+    }
+}
+// Function to initialise the script variables
+function init ()
+{
+    next_coordinate  = [null];
+    picked_coordinates = [null];
+    picked_points = 0;
+    vector_x = 0;
+    vector_y = 0;
+    vector_xtemp = 0;
+    vector_ytemp = 0;
+    patternheight = 0;
+    patternwidth = 0;
+    pathcount = 0;
+    pointcount = 0;
+
+
+///////
+// EXAMPLE
+///////
+// WRITE COMPASSS
+//path=[[[0.0733333,0.21],[0.0616667,0.12],[0.03,0.12],[0.015,0.2],[0.015,0.73],[0.0233333,0.81],[0.0566667,0.81],[0.0716667,0.75]],[[0.153333,0.2],[0.146667,0.11],[0.105,0.11],[0.0933333,0.2],[0.0933333,0.75],[0.101667,0.84],[0.143333,0.84],[0.155,0.78],[0.153333,0.2]],[[0.173333,0.85],[0.173333,0.1],[0.21,0.84],[0.233333,0.1],[0.238333,0.86]],[[0.26,0.87],[0.26,0.11],[0.296667,0.11],[0.313333,0.17],[0.313333,0.37],[0.3,0.44],[0.26,0.44]],[[0.32,0.9],[0.353333,0.1],[0.388333,0.9]],[[0.333333,0.6],[0.375,0.6]],[[0.451667,0.18],[0.443333,0.1],[0.408333,0.1],[0.398333,0.21],[0.398333,0.37],[0.451667,0.56],[0.451667,0.78],[0.443333,0.89],[0.408333,0.89],[0.4,0.79]],[[0.51,0.17],[0.5,0.1],[0.473333,0.1],[0.465,0.2],[0.463333,0.39],[0.508333,0.55],[0.508333,0.78],[0.498333,0.89],[0.471667,0.89],[0.463333,0.81]],[[0.558333,0.18],[0.55,0.1],[0.525,0.1],[0.516667,0.19],[0.516667,0.4],[0.556667,0.56],[0.556667,0.78],[0.548333,0.89],[0.525,0.89],[0.515,0.82]]];
+//points = [8,9,5,7,3,2,10,10,10];
+//nrpaths = 9;
+////////////////////
+
+
+}
+// Point of entry - primary function that is run to set up support variables
+function main ()
+{
+    init();
+}

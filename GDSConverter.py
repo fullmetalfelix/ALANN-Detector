@@ -114,7 +114,8 @@ class Shape:
 
 
 			self.writePath = None
-			
+			self.writeType = None
+			self.WriteMode = None
 
 			self.Save()
 			
@@ -194,11 +195,18 @@ class Shape:
 			### it should be able to start/end outline from either side so as to minimise write time
 
 			# find closest vertex to first/last point of write path
-			DistancesFirstPt = np.sqrt(np.sum( (self.writePath[0,:] - self.vertexes), axis=1 )**2 )
-			#DistancesLastPt = np.sqrt(np.sum( (self.writePath[-1,:] - self.vertexes), axis=1 )**2 )
-			minDistIndex = np.argmin(DistancesFirstPt)
-			outline = np.vstack( (self.vertexes[minDistIndex+1:, :], self.vertexes[:1+minDistIndex, :] ) )  
+			DistancesPtOne = np.sqrt(np.sum( (self.writePath[0,:] - self.vertexes)**2, axis=1 ) )
+			DistancesPtTwo = np.sqrt(np.sum( (self.writePath[-1,:] - self.vertexes)**2, axis=1 ) )
+			minDistIndexPtOne = np.argmin(DistancesPtOne)
+			minDistIndexPtTwo = np.argmin(DistancesPtTwo)
+			outline = np.vstack( (self.vertexes[minDistIndexPtOne:, :], self.vertexes[:1+minDistIndexPtOne, :] ) )  
 			self.writePath = np.vstack((outline, self.writePath[:,:]))
+
+			# won't use these right now but will save them to each shape. They then get used when we determine what order to write the shapes in
+			self.minDistPtOne = self.vertexes[minDistIndexPtOne, :]
+			self.minDistPtTwo = self.vertexes[minDistIndexPtTwo, :]
+
+
 
 
 	def x_serp(self, pitch, scan_type):

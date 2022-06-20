@@ -1193,6 +1193,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		self.polygons = []
 		self.lith_paths = [] # write paths inside the polygons
 		self.inbetween_paths = [] # write paths between polygons (in order)
+		self.crosshairs = [] #crosshairs for inbetween paths for checking
 
 		###########################
 		# CANVAS FRAME
@@ -1282,6 +1283,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		customtkinter.CTkButton(cp, text='Export', command=self.export_onclick).grid(row=8, column=0, pady=4, sticky="n")
 		customtkinter.CTkButton(cp, text='Combine Paths', command=self.combine_paths).grid(row=8, column=1, pady=4, sticky="n")
+		
 
 		return cp
 
@@ -1338,23 +1340,28 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(frm, text="Fill type: ", text_font=('Helvetica', 10)).grid(row=1, column=0, pady=4, padx=4,sticky='w')
 		self.variables['shape_filltype']['value'] = ttk.OptionMenu(frm, self.variables['shape_filltype']['object'], options_scan[0], *options_scan )
 		self.variables['shape_filltype']['value'].grid(row=1, column=1, pady=4,padx=4, sticky='e')
-		self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+		#self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
 		
 
 		options_fill = ['Only fill', 'Fill and outline']
 		customtkinter.CTkLabel(frm, text="Mode: ", text_font=('Helvetica', 10)).grid(row=2, column=0, pady=4, padx=4, sticky='w')
 		self.variables['shape_outline']['value'] = ttk.OptionMenu(frm, self.variables['shape_outline']['object'], options_fill[0], *options_fill)
 		self.variables['shape_outline']['value'].grid(row=2, column=1, pady=4,padx=4, sticky='e')
-		self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+		#self.variables['shape_outline']['value'].config(state=tk.DISABLED)
 
 
 		self.variables['shape_Write']['value'] = customtkinter.CTkButton(master=frm, text="Write", command=self._Write_onclick)
 		self.variables['shape_Write']['value'].grid(row=3, column=0, padx=4,pady=4, sticky="ne")
-		self.variables['shape_Write']['value'].config(state=tk.DISABLED)
+		#self.variables['shape_Write']['value'].config(state=tk.DISABLED)
+
+		Apply_to_all = customtkinter.CTkButton(master=frm, text="Apply to all", command=self._Apply_all)
+		Apply_to_all.grid(row=3, column=1, padx=4,pady=4, sticky="ne")
 
 		self.variables['shape_clear']['value'] = customtkinter.CTkButton(master=frm, text="Reset", command=self._clear_onclick)
-		self.variables['shape_clear']['value'].grid(row=3, column=1, padx=4,pady=4, sticky="nw")
-		self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+		self.variables['shape_clear']['value'].grid(row=3, column=2, padx=4,pady=4, sticky="nw")
+		#self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+
+		
 
 		
 		return frm
@@ -1478,23 +1485,23 @@ class TabLithoPath(customtkinter.CTkFrame):
 				poly.options['fill'] = 'blue'
 				poly.options['width'] = 1
 
-
-
+		
+		
 		if selected is None:
 
 			self.variables['shape_selected']['object'].set("Shape[not selected] Writeization")
 			self.variables['shape_selected']['value'] = None
 
 			# disable controls
-			self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
-			self.variables['shape_outline']['value'].config(state=tk.DISABLED)
-			self.variables['shape_Write']['value'].config(state=tk.DISABLED)
-			self.variables['shape_clear']['value'].config(state=tk.DISABLED)
-
-
-
-
+			#self.variables['shape_filltype']['value'].config(state=tk.DISABLED)
+			#self.variables['shape_outline']['value'].config(state=tk.DISABLED)
+			#self.variables['shape_Write']['value'].config(state=tk.DISABLED)
+			#self.variables['shape_clear']['value'].config(state=tk.DISABLED)
+			# need these enabled so that we can use the apply to all button
+		
 		self.canvas.render()
+
+		
 		
 
 
@@ -1535,11 +1542,17 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		# remove old Write from view - do not update
 		self.canvas.RemoveObject('polyfill-{}'.format(shape.index), noRender=True)
+		# remove old crosshairs
+		self.canvas.RemoveObject('crosshair-{}0'.format(shape.index), noRender=True)
+		self.canvas.RemoveObject('crosshair-{}1'.format(shape.index), noRender=True)
+
 
 		# compute the Write
 		rtype = self.variables['shape_filltype']['object'].get()
 		routl = self.variables['shape_outline']['object'].get()
 		pitch = int(self.variables['pitch']['object'].get())
+		shape.writeType = rtype
+		shape.writeMode = routl
 
 		shape.vector_scan(rtype, routl, pitch)
 		
@@ -1547,6 +1560,46 @@ class TabLithoPath(customtkinter.CTkFrame):
 		# add new Write to the canvas
 		fillLine = CanvasLine("polyfill-{}".format(shape.index), shape.writePath, fill="orange")
 		self.canvas.AddObject(fillLine)
+		# add starting and ending crosshairs so can tell if it matches with the inbetween lines (just for testing atm)
+		crosshair0 = CanvasCrossHair("crosshair-{}0".format(shape.index), shape.writePath[0,:], fill='red') #start
+		crosshair1 = CanvasCrossHair("crosshair-{}1".format(shape.index), shape.writePath[-1,:], fill='blue') #end
+		self.canvas.AddObject(crosshair0)
+		self.canvas.AddObject(crosshair1)
+		self.crosshairs.append(crosshair0)
+		self.crosshairs.append(crosshair1)
+		
+
+	def _Apply_all(self):
+		# applies selected options too all shapes
+
+		#clear old inbetween paths + their cross hairs
+		for path in self.inbetween_paths: 
+			self.canvas.RemoveObject(path.name)
+		for crosshair in self.crosshairs:
+			self.canvas.RemoveObject(crosshair.name)
+
+		for shape in self.gds.shapes:
+			rtype = self.variables['shape_filltype']['object'].get()
+			routl = self.variables['shape_outline']['object'].get()
+			pitch = int(self.variables['pitch']['object'].get())
+			self.gds.shapes[shape].writeType = rtype
+			self.gds.shapes[shape].writeMode = routl
+
+			self.gds.shapes[shape].vector_scan(rtype, routl, pitch)
+			
+			# remove old path and crosshairs
+			self.canvas.RemoveObject("polyfill-{}".format(shape))
+			self.canvas.RemoveObject("crosshair-{}0".format(shape))
+			self.canvas.RemoveObject("crosshair-{}1".format(shape))
+
+			# add new Write to the canvas
+			fillLine = CanvasLine("polyfill-{}".format(shape), self.gds.shapes[shape].writePath, fill="orange")
+			self.canvas.AddObject(fillLine)
+			# add starting and ending crosshairs so can tell if it matches with the inbetween lines (just for testing atm)
+			crosshair0 = CanvasCrossHair("crosshair-{}0".format(shape), self.gds.shapes[shape].writePath[0,:], fill='red') #start
+			crosshair1 = CanvasCrossHair("crosshair-{}1".format(shape), self.gds.shapes[shape].writePath[-1,:], fill='blue') #end
+			self.canvas.AddObject(crosshair0)
+			self.canvas.AddObject(crosshair1)
 
 
 
@@ -1605,7 +1658,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 		# possible path and choosing the one with the smallest average distances.
 		points_list = []
 		for shape in self.gds.shapes:
-			points_list.append( [self.gds.shapes[shape].writePath[0,:], self.gds.shapes[shape].writePath[-1,:]] )
+			points_list.append( self.gds.shapes[shape].writePath[0,:] )
+			points_list.append( self.gds.shapes[shape].writePath[-1,:] )
+
 		points_list = numpy.asarray(points_list)
 		dist_dict={}
 		n = points_list.shape[0]
@@ -1617,7 +1672,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 			#the algorithm should count this as 0. For points with keys, i, that are even this should be the ith distance.
 			#for points with keys, j, that are off, this shoulds be the (j-1)th distance. this will be taken
 			# care of in the function that calculates all the paths' distances.
-			dist_dict[i] = numpy.sqrt(numpy.sum((points_list-point)**2, axis=1)) #distances
+			dist_dict[i] = numpy.sqrt(numpy.sum((points_list-point)**2, axis=1)) #distances between all points
 		distances = []
 		all_perms=self.list_perms(n)
 		for path in all_perms:
@@ -1633,20 +1688,79 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 		# this is the best order for paths between shapes
 		best_order =  [list(points_list[i]) for i in best_perm]
+		# how to get shape order, not just points order...?
+		# find shape order
+		best_shape_order = [(y[0]//2 +1) for y in all_perms[best_ind]]
 
-		# remove any old plotted inbetween paths
+		# remove any old plotted inbetween paths and cross hairs
 		for path in self.inbetween_paths: 
-			self.canvas.RemoveObject(path.name)
+			self.canvas.RemoveObject(path.name, noRender=True)
+		for crosshair in self.crosshairs:
+			self.canvas.RemoveObject(crosshair)
 
-		# plot new ones in green on canvas
-		for i in range(len(best_order)-1):
-			inbetween_path = CanvasLine("inbetween path" + str(i),numpy.asarray([best_order[i][1], best_order[i+1][0] ]), fill="green")
-			self.canvas.AddObject( inbetween_path )
-			self.inbetween_paths.append(inbetween_path)
-
-		# combine inbetween (idle) paths with the write paths
-		#### check how this needs to be input into precopi's MATE code. I don't think it's all one big list 
+		# now that we've found the shortest order, we need to make sure the start and end points of shape fill in
+		# agree with this order. 
+		for shape, i in zip(best_shape_order, range(n//2)):
+			if numpy.all(self.gds.shapes[shape].writePath[-1,:] == best_order[2*i]):
+				self.gds.shapes[shape].writePath = self.gds.shapes[shape].writePath[::-1,:]
+				
 		
+			self.canvas.RemoveObject("crosshair-{}0".format(shape))
+			self.canvas.RemoveObject("crosshair-{}1".format(shape))
+			crosshair0 = CanvasCrossHair("crosshair-{}0".format(shape), self.gds.shapes[shape].writePath[0,:], fill='red') #start
+			crosshair1 = CanvasCrossHair("crosshair-{}1".format(shape), self.gds.shapes[shape].writePath[-1,:], fill='blue') #end
+			self.canvas.AddObject(crosshair0)
+			self.canvas.AddObject(crosshair1)
+
+
+		# add cross hairs now too for checking order is correct. Green for idle paths
+		for j in range((n//2)-1):
+			i=2*j+1
+			inbetween_path = CanvasLine("inbetween path" + str(i),numpy.asarray([best_order[i], best_order[i+1] ]), fill="green")
+			self.canvas.AddObject( inbetween_path )
+			self.inbetween_paths.append( inbetween_path )
+			crosshair = CanvasCrossHair("crosshair-{}".format(i), best_order[i], fill='green') #start
+			self.canvas.AddObject(crosshair)
+			self.crosshairs.append(crosshair)
+
+		# combine inbetween (idle) paths with the write paths into a list of arrays in the right order
+		# this is what will be plotted and used in the final producst
+		self.final_path = [self.gds.shapes[i].writePath for i in self.gds.shapes]
+
+		# for now, we make another version that gets inserted into to Procopi's MATE script
+		# Some info from the MATE script below on formatting of the points
+		'''
+		STRUCTURE OF THE PATTERN MATRIX in MATE
+		path[][][] is a three dimensional array where each row contains a path that shall be traced by the tip in writing mode. Each path consists an array of coorinates (x and y). The number of points per path has to be stored in points[]. 
+		The coordinate system origin has to be the top left and the coordinates shall be from 0 to 1 in x and y direction (relative coordinates to selected area!)
+		points[] contains the number of points the corresponding path has.
+		nrpaths contains the total of independent paths that are written.
+		HOW THE AREA OF WRITING IS DEFINED 
+		Three points of a quadrilateral shape are defined, within which the pattern shall be written inside. The points are defined using mouse clicks.
+		'''
+		# translate all shapes so that origin is to the top left corner
+		# find highest and left most points
+		xcoords = [self.gds.shapes[i].writePath[:,0] for i in self.gds.shapes]
+		ycoords = [self.gds.shapes[i].writePath[:,1] for i in self.gds.shapes]
+		x_min = min( [numpy.min(array) for array in xcoords])
+		y_max = max( [numpy.max(array) for array in ycoords]) 
+		# make a dictionary of shapes to use just in this temporary bit of code. Thought it'd be easier to make a standalone dictionary not connected
+		# to anything else so getting rid of it later will be easier and won't need to think if it's connected to any other bits of code
+		shapes = {}
+		for i in self.gds.shapes:
+			shapes[i] = self.gds.shapes[i].writePath - numpy.array([x_min, y_max]) # translate
+			shapes[i][:,1] = (-1)*shapes[i][:,1] # invert the y coordinates so they increase from 0 downwards
+		# now we need to normalise them so that all coords are between 0 and 1
+		x_max = max( [numpy.max(array) for array in xcoords])
+		y_min = min( [numpy.min(array) for array in ycoords])
+		for i in shapes:
+			shapes[i][:,1] = shapes[i][:,1]/(y_max-y_min)
+			shapes[i][:,0] = shapes[i][:,0]/(x_max-x_min)
+		# combine all the paths into one list, but we have to have the paths as lists of points now because the final format needs commas inbetween points and within the points too
+		self.final_list_points = [shapes[i].tolist() for i in shapes]
+		# we also need the number of points in each shape path
+		self.final_list_numpoints = [shapes[i].shape[0] for i in shapes]
+		# we save these to the class so that they can be used in the export button
 
 	def list_perms(self, n):
 		# Takes in an integer n (number of shapes). Each shape has 2 points associated 
