@@ -1188,7 +1188,9 @@ class TabLithoPath(customtkinter.CTkFrame):
 			'writespeed': 	{'object': tk.StringVar(self), 'value':None},
 			'idlespeed': 	{'object': tk.StringVar(self), 'value':None},
 			'pitch': 		{'object': tk.StringVar(self), 'value':None},
-			'exptype': 		{'object': tk.StringVar(self), 'value':None},
+			'write_gap_voltage': {'object': tk.StringVar(self), 'value':None},
+			'write_current_setpoint': {'object': tk.StringVar(self), 'value':None},
+			'path_dwell_time': {'object': tk.StringVar(self), 'value':None}
 		}
 		self.polygons = []
 		self.lith_paths = [] # write paths inside the polygons
@@ -1252,10 +1254,10 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(cp, text="Write settings").grid(row=0, columnspan=2, pady=4, sticky='new')
 
 
-		
-		customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
-		self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
-		self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
+		# not needed for now
+		#customtkinter.CTkLabel(cp, text="Write Field Size [nm]: ").grid(row=1, column=0, pady=4, sticky='w')
+		#self.control_writefield = customtkinter.CTkEntry(cp, textvariable=self.variables['writefield']['object'])
+		#self.control_writefield.grid(row=1, column=1, padx=4, sticky='ew')
 		
 		customtkinter.CTkLabel(cp, text="Pitch [nm]: ").grid(row=2, column=0, pady=4, sticky='w')
 		self.control_pitch = customtkinter.CTkEntry(cp, textvariable=self.variables['pitch']['object'])
@@ -1268,21 +1270,23 @@ class TabLithoPath(customtkinter.CTkFrame):
 		customtkinter.CTkLabel(cp, text="Idle Speed [nm/s]: ").grid(row=4, column=0, pady=4,sticky='w')
 		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['idlespeed']['object'])
 		self.control_idlespeed.grid(row=4, column=1, padx=4, sticky='ew')
-		
-		customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
 
+		customtkinter.CTkLabel(cp, text="Path Dwell Time [s]: ").grid(row=5, column=0, pady=4,sticky='w')
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['path_dwell_time']['object'])
+		self.control_idlespeed.grid(row=5, column=1, padx=4, sticky='ew')
 
-		customtkinter.CTkLabel(cp, text="Export paths").grid(row=6, column=0, columnspan=2, pady=8, sticky='ew')
+		customtkinter.CTkLabel(cp, text="Write Gap Voltage [V]: ").grid(row=6, column=0, pady=4,sticky='w')
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['write_gap_voltage']['object'])
+		self.control_idlespeed.grid(row=6, column=1, padx=4, sticky='ew')
 
-		# Entry fields and their labels
-		customtkinter.CTkLabel(cp, text="Export as: ").grid(row=7, column=0, pady=4,sticky='w')
+		customtkinter.CTkLabel(cp, text="Write Current Setpoint [A]: ").grid(row=7, column=0, pady=4,sticky='w')
+		self.control_idlespeed = customtkinter.CTkEntry(cp, textvariable=self.variables['write_current_setpoint']['object'])
+		self.control_idlespeed.grid(row=7, column=1, padx=4, sticky='ew')
 
-		options = ['Matrix Script','.txt file']
-		self.control_exptype = ttk.OptionMenu(cp, self.variables['exptype']['object'], options[0], *options, command=self.exptype_onchange)
-		self.control_exptype.grid(row=7, column=1, padx=4, sticky='e')
+		#customtkinter.CTkCheckBox(cp, text="Invert image").grid(row=5, columnspan=2,pady=8, sticky='n')
 
-		customtkinter.CTkButton(cp, text='Export', command=self.export_onclick).grid(row=8, column=0, pady=4, sticky="n")
-		customtkinter.CTkButton(cp, text='Combine Paths', command=self.combine_paths).grid(row=8, column=1, pady=4, sticky="n")
+		customtkinter.CTkButton(cp, text='Export', command=self.export_onclick).grid(row=10, column=0, pady=4, sticky="n")
+		customtkinter.CTkButton(cp, text='Combine Paths', command=self.combine_paths).grid(row=10, column=1, pady=4, sticky="n")
 		
 
 		return cp
@@ -1620,37 +1624,27 @@ class TabLithoPath(customtkinter.CTkFrame):
 
 	def export_onclick(self):
 
-		# takes in the shapes' coords and returns the vector coordinates for the scan. Should also replot with these vector coordinates
-		# clear plot
+		# exports the gds to the main navigation page 
+		# for now, it will export the vector path to a MATE or .txt file
+		mate_file = open('Pattern_Writer_v2_1.mate')
+		string_list = mate_file.readlines()
+		mate_file.close
+
+		string_list[47] = "var path_dwell_time         = {};           // Dwell Time between writing each path [s] \n".format(self.variables['path_dwell_time']['object'].get())
+		string_list[48] = "var write_gap_voltage       = {};         // Writing Voltage [Volts] FEM 6-8 V, APM 3-4 V \n".format(self.variables['write_gap_voltage']['object'].get())
+		string_list[49] = "var write_current_setpoint  = {};   // Writing Current [Ampere] FEM 0.75-1.5 nA, APM 3-4.5 nA \n".format(self.variables['write_current_setpoint']['object'].get())
+		string_list[50] = "var write_scanspeed         = {};          // Writing Scan Speed [nm/s] 25 - 400 nm/s \n".format(self.variables['writespeed']['object'].get())
+		string_list[51] = "var idle_scanspeed          = {};         // Idle Scan Speed whilst not writing [nm/s] \n".format(self.variables['idlespeed']['object'].get())
 		
-		# define variables
-		#write_field = int(self.tvar_write_field.get())
-		pitch = int(self.variables['pitch']['object'].get())
-		#write_speed = int(self.write_speed.get())
-		#idle_speed = int(self.idle_speed.get())
+		string_list[260] = 'path=' + str(self.final_list_points) +'\n'
+		string_list[261] = 'points=' + str(self.final_list_numpoints) +'\n'
 
-		# get vector scan coordinates for each shape
-		for shape in self.gds.shapes:
-			write_type = self.frame_options_dict[shape].var_scan.get()
-			scan_type = self.frame_options_dict[shape].var_fill.get() 
+		mate_file = open('Pattern_Writer_v2_1.mate','w')
+		new_file_contents = "".join(string_list)
+		mate_file.write(new_file_contents)
+		mate_file.close()
 
-			self.gds.shapes[shape].vector_scan(write_type, scan_type, pitch)
 
-		# plot the new cooords
-		# don't clear the canvas, just draw the Write path in a different colour so both
-		# can be seen at the same time
-		
-		# remove any lithography paths currently on canvas, including inbetween plygon paths
-		for path in self.lith_paths: 
-			self.canvas.RemoveObject(path.name)
-		for path in self.inbetween_paths: 
-			self.canvas.RemoveObject(path.name)
-
-		# draw the new lithography paths
-		for shape in self.gds.shapes:
-			lith_path = CanvasLine('lithpath'+str(shape), self.gds.shapes[shape].writePath, fill="red")
-			self.canvas.AddObject(lith_path)
-			self.lith_paths.append(lith_path)
 	
 	def combine_paths(self):
 		# once all shapes have had their write paths determined, this takes them all in and 
@@ -1738,6 +1732,7 @@ class TabLithoPath(customtkinter.CTkFrame):
 		HOW THE AREA OF WRITING IS DEFINED 
 		Three points of a quadrilateral shape are defined, within which the pattern shall be written inside. The points are defined using mouse clicks.
 		'''
+
 		# translate all shapes so that origin is to the top left corner
 		# find highest and left most points
 		xcoords = [self.gds.shapes[i].writePath[:,0] for i in self.gds.shapes]
